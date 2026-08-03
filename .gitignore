@@ -1,0 +1,35 @@
+# Dart / Flutter
+.dart_tool/
+.packages
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+*.iml
+
+# Android
+android/.gradle/
+android/local.properties
+android/app/debug/
+android/app/profile/
+android/app/release/
+
+# Windows
+windows/flutter/ephemeral/
+windows/runner/flutter_ephemeral/
+
+# 密钥与本地配置
+*.jks
+*.keystore
+key.properties
+
+# 系统
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# 生成图
+.workbuddy/generated-images/

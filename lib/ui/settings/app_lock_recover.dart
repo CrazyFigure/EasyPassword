@@ -1,0 +1,129 @@
+/// 应用锁恢复弹窗（通过安全问题重置密码，需求 3.5.1）
+library;
+
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
+import '../../core/constants.dart';
+import '../../state/app_state.dart';
+
+class AppLockRecoverSheet extends StatefulWidget {
+  final String question;
+  const AppLockRecoverSheet({super.key, required this.question});
+
+  @override
+  State<AppLockRecoverSheet> createState() => _AppLockRecoverSheetState();
+}
+
+class _AppLockRecoverSheetState extends State<AppLockRecoverSheet> {
+  final _answerCtrl = TextEditingController();
+  final _newPinCtrl = TextEditingController();
+  final _newPin2Ctrl = TextEditingController();
+  bool _verified = false;
+  bool _busy = false;
+
+  @override
+  void dispose() {
+    _answerCtrl.dispose();
+    _newPinCtrl.dispose();
+    _newPin2Ctrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _verifyAnswer() async {
+    final state = context.read<AppState>();
+    final ok = await state.appLock
+        .verifySecurityAnswer(_answerCtrl.text);
+    if (!mounted) return;
+    if (ok) {
+      setState(() => _verified = true);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('答案错误')),
+      );
+    }
+  }
+
+  Future<void> _reset() async {
+    final pin = _newPinCtrl.text;
+    if (pin.length < 4) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('密码至少 4 位')),
+      );
+      return;
+    }
+    if (pin != _newPin2Ctrl.text) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('两次密码不一致')),
+      );
+      return;
+    }
+    setState(() => _busy = true);
+    final state = context.read<AppState>();
+    // 用新密码 + 原安全问题重置
+    await state.appLock.enable(pin, widget.question, _answerCtrl.text);
+    // 直接解锁进入应用
+    state.locked = false;
+    await state.refreshAppLock();
+    if (!mounted) return;
+    Navigator.pop(context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding:
+          EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom + 20),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text('恢复应用锁密码',
+                style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textMain)),
+            const SizedBox(height: 16),
+            if (!_verified) ...[
+              TextField(
+                controller: _answerCtrl,
+                autofocus: true,
+                decoration: InputDecoration(
+                  labelText: '安全问题',
+                  hintText: widget.question,
+                ),
+              ),
+              const SizedBox(height: 12),
+              FilledButton(
+                onPressed: _verifyAnswer,
+                child: const Text('验证答案'),
+              ),
+            ] else ...[
+              const Text('验证通过，请设置新密码',
+                  style: TextStyle(fontSize: 13, color: AppColors.textWeak)),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _newPinCtrl,
+                obscureText: true,
+                decoration: const InputDecoration(labelText: '新密码'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _newPin2Ctrl,
+                obscureText: true,
+                decoration: const InputDecoration(labelText: '确认新密码'),
+              ),
+              const SizedBox(height: 16),
+              FilledButton(
+                onPressed: _busy ? null : _reset,
+                child: const Text('重置并解锁'),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
