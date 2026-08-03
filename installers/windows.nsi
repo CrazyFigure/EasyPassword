@@ -33,7 +33,6 @@ VIAddVersionKey /LANG=2052 "ProductVersion" "${VERSION}"
 
 ; ---------- 界面 ----------
 !define MUI_ABORTWARNING
-!define MUI_ICON "${SOURCE}\data\flutter_assets\assets\icon\app_icon.ico"
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
