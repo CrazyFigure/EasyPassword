@@ -77,7 +77,21 @@ jobs:
           # 从 tag 中提取版本号（v1.2.3 -> 1.2.3）
           VERSION="${GITHUB_REF_NAME#v}"
           mkdir -p dist
-          makensis -DVERSION="$VERSION" -DAPP_NAME="EasyPassword" \
+          # 定位 makensis（choco 安装路径随版本变化，逐个探测）
+          MAKENSIS="$(command -v makensis 2>/dev/null || true)"
+          if [ -z "$MAKENSIS" ]; then
+            for p in "/c/Program Files (x86)/NSIS/makensis.exe" \
+                     "/c/Program Files/NSIS/makensis.exe" \
+                     "/c/Program Files (x86)/NSIS/bin/makensis.exe"; do
+              if [ -f "$p" ]; then MAKENSIS="$p"; break; fi
+            done
+          fi
+          if [ -z "$MAKENSIS" ]; then
+            echo "::error::makensis not found"
+            exit 1
+          fi
+          echo "using makensis: $MAKENSIS"
+          "$MAKENSIS" -DVERSION="$VERSION" -DAPP_NAME="EasyPassword" \
             -DOUTPUT="dist/EasyPassword-Setup-$VERSION.exe" \
             -DSOURCE="build/windows/x64/runner/Release" \
             installers/windows.nsi
