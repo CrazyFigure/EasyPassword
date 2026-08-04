@@ -23,6 +23,11 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        // 仅打包 arm64-v8a，避免 fat APK 携带 4 个 ABI 的 Flutter 引擎（体积优化，
+        // APK 从约 54MB 降至 15-20MB；不兼容 32 位旧设备）
+        ndk {
+            abiFilters.add("arm64-v8a")
+        }
     }
 
     buildTypes {

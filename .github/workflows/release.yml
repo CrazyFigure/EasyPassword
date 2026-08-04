@@ -37,7 +37,8 @@ jobs:
         run: flutter test
 
       - name: Build APK
-        run: flutter build apk --release
+        # 仅构建 arm64-v8a 单 ABI 包，显著减小体积（与 build.gradle.kts 的 abiFilters 双保险）
+        run: flutter build apk --release --target-platform android-arm64
 
       - name: Upload APK to Release
         uses: softprops/action-gh-release@v2
