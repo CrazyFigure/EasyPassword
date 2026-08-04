@@ -1,8 +1,7 @@
-; EasyPassword Windows 安装包脚本（NSIS）
-; 用法: makensis -DVERSION=1.0.0 -DOUTPUT=dist/EasyPassword-Setup.exe -DSOURCE=build/windows/x64/runner/Release installers/windows.nsi
+; EasyPassword Windows installer script (NSIS 3.x)
+; Usage: makensis -DVERSION=1.0.0 -DOUTPUT=dist/EasyPassword-Setup.exe -DSOURCE=build/windows/x64/runner/Release installers/windows.nsi
 
 !include "MUI2.nsh"
-!include "FileFunc.nsh"
 
 !define PRODUCT_NAME "EasyPassword"
 !ifndef VERSION
@@ -27,11 +26,11 @@ InstallDirRegKey HKLM "${PRODUCT_UNINST_KEY}" "UninstallString"
 RequestExecutionLevel admin
 
 VIProductVersion "${VERSION}.0"
-VIAddVersionKey /LANG=2052 "ProductName" "${PRODUCT_NAME}"
-VIAddVersionKey /LANG=2052 "FileVersion" "${VERSION}"
-VIAddVersionKey /LANG=2052 "ProductVersion" "${VERSION}"
+VIAddVersionKey "ProductName" "${PRODUCT_NAME}"
+VIAddVersionKey "FileVersion" "${VERSION}"
+VIAddVersionKey "ProductVersion" "${VERSION}"
 
-; ---------- 界面 ----------
+; ---------- UI ----------
 !define MUI_ABORTWARNING
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_DIRECTORY
@@ -41,7 +40,7 @@ VIAddVersionKey /LANG=2052 "ProductVersion" "${VERSION}"
 !insertmacro MUI_UNPAGE_INSTFILES
 !insertmacro MUI_LANGUAGE "SimpChinese"
 
-; ---------- 安装 ----------
+; ---------- Install ----------
 Section "MainSection" SEC01
   SetOutPath "$INSTDIR"
   SetOverwrite ifnewer
@@ -51,7 +50,7 @@ Section "MainSection" SEC01
   CreateShortCut "$DESKTOP\EasyPassword.lnk" "$INSTDIR\easypassword.exe"
 SectionEnd
 
-; ---------- 卸载 ----------
+; ---------- Uninstall ----------
 Section Uninstall
   Delete "$INSTDIR\*.*"
   RMDir /r "$INSTDIR"
