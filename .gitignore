@@ -38,3 +38,6 @@ Thumbs.db
 .workbuddy/*.html
 .workbuddy/*.txt
 .workbuddy/screenshots/
+
+# 本地安装包输出
+dist/
