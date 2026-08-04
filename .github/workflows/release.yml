@@ -78,11 +78,16 @@ jobs:
           VERSION="${GITHUB_REF_NAME#v}"
           mkdir -p dist
           # 定位 makensis（choco 安装路径随版本变化，逐个探测）
+          echo "=== 探测 makensis ==="
+          command -v makensis || true
+          ls "/c/ProgramData/chocolatey/bin/" 2>/dev/null | grep -i nsis || true
+          ls "/c/Program Files (x86)/NSIS/" 2>/dev/null || true
           MAKENSIS="$(command -v makensis 2>/dev/null || true)"
           if [ -z "$MAKENSIS" ]; then
             for p in "/c/Program Files (x86)/NSIS/makensis.exe" \
                      "/c/Program Files/NSIS/makensis.exe" \
-                     "/c/Program Files (x86)/NSIS/bin/makensis.exe"; do
+                     "/c/Program Files (x86)/NSIS/bin/makensis.exe" \
+                     "/c/ProgramData/chocolatey/bin/makensis.exe"; do
               if [ -f "$p" ]; then MAKENSIS="$p"; break; fi
             done
           fi
@@ -91,10 +96,13 @@ jobs:
             exit 1
           fi
           echo "using makensis: $MAKENSIS"
+          "$MAKENSIS" /VERSION
+          echo "=== 开始打包 ==="
           "$MAKENSIS" -DVERSION="$VERSION" -DAPP_NAME="EasyPassword" \
             -DOUTPUT="dist/EasyPassword-Setup-$VERSION.exe" \
             -DSOURCE="build/windows/x64/runner/Release" \
             installers/windows.nsi
+          ls -la dist/
 
       - name: Upload EXE to Release
         uses: softprops/action-gh-release@v2
