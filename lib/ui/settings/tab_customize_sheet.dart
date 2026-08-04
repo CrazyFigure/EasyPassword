@@ -1,5 +1,6 @@
 /// 底部栏自定义弹窗（需求 3.5.4）：
 /// 开关 密码/API Key/搜索/设置，调整顺序，设置默认打开的主界面
+/// 居中弹窗样式（需求：选择框从中间出现，不再从底部弹出）
 library;
 
 import 'package:flutter/material.dart';
@@ -55,57 +56,70 @@ class _TabCustomizeSheetState extends State<TabCustomizeSheet> {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 24),
+      // 居中弹窗内使用固定上下留白；键盘避让由 showCenterDialog 统一处理
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
       child: Column(
         mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Padding(
-            padding: EdgeInsets.fromLTRB(20, 20, 20, 12),
-            child: Text('底部栏自定义',
-                style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.textMain)),
-          ),
+          const Text('底部栏自定义',
+              style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.textMain)),
+          const SizedBox(height: 12),
           const Divider(height: 1, color: AppColors.border),
+          const SizedBox(height: 8),
           if (!_loaded)
             const Padding(
               padding: EdgeInsets.all(32),
-              child: CircularProgressIndicator(),
+              child: Center(child: CircularProgressIndicator()),
             )
           else ...[
-            // Tab 开关 + 顺序
-            Flexible(
-              child: ReorderableListView.builder(
-                shrinkWrap: true,
-                itemCount: _tabs.length,
-                onReorderItem: (oldIndex, newIndex) {
-                  setState(() {
-                    final item = _tabs.removeAt(oldIndex);
-                    _tabs.insert(newIndex, item);
-                  });
-                },
-                itemBuilder: (context, index) {
-                  final tab = _tabs[index];
-                  return ListTile(
-                    key: ValueKey(tab.id),
-                    leading: const Icon(Icons.drag_handle,
-                        color: AppColors.textFaint),
-                    title: Text(tab.label,
-                        style: const TextStyle(
-                            fontSize: 15, color: AppColors.textMain)),
-                    trailing: Switch(
-                      value: true,
-                      activeTrackColor: AppColors.primary,
-                      onChanged: (_) => _toggleOff(tab),
+            // Tab 开关 + 顺序（固定高度列表，避免与弹窗滚动冲突）
+            SizedBox(
+              height: _tabs.isEmpty ? 48 : (_tabs.length * 52.0).clamp(52, 208),
+              child: _tabs.isEmpty
+                  ? const Center(
+                      child: Text('全部 Tab 已隐藏',
+                          style: TextStyle(
+                              fontSize: 13, color: AppColors.textWeak)))
+                  : ReorderableListView.builder(
+                      shrinkWrap: true,
+                      itemCount: _tabs.length,
+                      onReorderItem: (oldIndex, newIndex) {
+                        setState(() {
+                          final item = _tabs.removeAt(oldIndex);
+                          _tabs.insert(newIndex, item);
+                        });
+                      },
+                      itemBuilder: (context, index) {
+                        final tab = _tabs[index];
+                        return ListTile(
+                          key: ValueKey(tab.id),
+                          dense: true,
+                          visualDensity: VisualDensity.compact,
+                          contentPadding: EdgeInsets.zero,
+                          leading: const Icon(Icons.drag_handle,
+                              color: AppColors.textFaint),
+                          title: Text(tab.label,
+                              style: const TextStyle(
+                                  fontSize: 15, color: AppColors.textMain)),
+                          trailing: Switch(
+                            value: true,
+                            activeTrackColor: AppColors.primary,
+                            onChanged: (_) => _toggleOff(tab),
+                          ),
+                        );
+                      },
                     ),
-                  );
-                },
-              ),
             ),
             // 隐藏的 tab 补充开关
             ...NavTab.all.where((t) => !_tabs.any((e) => e.id == t.id)).map(
                   (tab) => ListTile(
+                    dense: true,
+                    visualDensity: VisualDensity.compact,
+                    contentPadding: EdgeInsets.zero,
                     leading:
                         const Icon(Icons.drag_handle, color: Colors.transparent),
                     title: Text(tab.label,
@@ -117,10 +131,11 @@ class _TabCustomizeSheetState extends State<TabCustomizeSheet> {
                     ),
                   ),
                 ),
+            const SizedBox(height: 8),
             const Divider(height: 1, color: AppColors.border),
             // 默认主页
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 4),
+              padding: const EdgeInsets.symmetric(vertical: 12),
               child: Row(
                 children: [
                   const Text('启动时默认打开',
@@ -143,12 +158,9 @@ class _TabCustomizeSheetState extends State<TabCustomizeSheet> {
                 ],
               ),
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-              child: FilledButton(
-                onPressed: _save,
-                child: const Text('保存'),
-              ),
+            FilledButton(
+              onPressed: _save,
+              child: const Text('保存'),
             ),
           ],
         ],

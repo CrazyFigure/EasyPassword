@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 
 import '../core/constants.dart';
 import '../state/app_state.dart';
+import 'center_dialog.dart';
 import 'settings/app_lock_recover.dart';
 
 class LockPage extends StatefulWidget {
@@ -51,10 +52,9 @@ class _LockPageState extends State<LockPage> {
       return;
     }
     if (!mounted) return;
-    // 通过安全问题重置密码（重置后直接解锁）
-    await showModalBottomSheet<void>(
+    // 通过安全问题重置密码（居中弹窗，重置后直接解锁）
+    await showCenterDialog<void>(
       context: context,
-      isScrollControlled: true,
       builder: (_) => AppLockRecoverSheet(question: question),
     );
   }

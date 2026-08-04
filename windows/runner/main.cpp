@@ -26,7 +26,8 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
 
   FlutterWindow window(project);
   Win32Window::Point origin(10, 10);
-  Win32Window::Size size(1280, 720);
+  // 默认窗口 4:3（960x720）：缩短横向长度，更接近内容为主的卡片布局
+  Win32Window::Size size(960, 720);
   if (!window.Create(L"EasyPassword", origin, size)) {
     return EXIT_FAILURE;
   }

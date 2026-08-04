@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../core/constants.dart';
 import '../services/settings_service.dart';
 import '../state/app_state.dart';
+import 'center_dialog.dart';
 import 'item_list_view.dart';
 import 'search_page.dart';
 import 'settings/settings_page.dart';
@@ -63,9 +64,9 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _openAddItem(BuildContext context, String type) async {
-    final result = await showModalBottomSheet<Map<String, dynamic>>(
+    // 居中弹窗（需求：输入框弹窗从中间出现，而非底部）
+    final result = await showCenterDialog<Map<String, dynamic>>(
       context: context,
-      isScrollControlled: true,
       builder: (_) => _AddItemSheet(type: type),
     );
     if (result != null && context.mounted) {

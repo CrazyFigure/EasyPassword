@@ -4,12 +4,15 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/constants.dart';
 import '../../state/app_state.dart';
+import '../center_dialog.dart';
 import 'app_lock_setup.dart';
 import 'font_size_setting.dart';
 import 'tab_customize_sheet.dart';
+import 'update_check_dialog.dart';
 import 'webdav_setup.dart';
 
 class SettingsPage extends StatelessWidget {
@@ -78,9 +81,8 @@ class SettingsPage extends StatelessWidget {
             icon: Icons.tab_outlined,
             title: '底部栏选项',
             subtitle: '开关 Tab、调整顺序、设置默认主页',
-            onTap: () => showModalBottomSheet<void>(
+            onTap: () => showCenterDialog<void>(
               context: context,
-              isScrollControlled: true,
               builder: (_) => const TabCustomizeSheet(),
             ),
           ),
@@ -115,8 +117,25 @@ class SettingsPage extends StatelessWidget {
           const _ActionTile(
             icon: Icons.info_outline,
             title: '版本',
-            subtitle: 'EasyPassword v1.0.0 · Android + Windows',
-            onTap: null,
+            subtitle:
+                'EasyPassword v${AppInfo.currentVersion} · Android + Windows',
+          ),
+          const _Divider(),
+          _ActionTile(
+            icon: Icons.system_update_alt,
+            title: '检测更新',
+            subtitle: '检查 GitHub 上是否有新版本',
+            onTap: () => showUpdateCheckDialog(context),
+          ),
+          const _Divider(),
+          _ActionTile(
+            icon: Icons.link,
+            title: 'GitHub',
+            subtitle: AppInfo.repoUrl,
+            onTap: () => launchUrl(
+              Uri.parse(AppInfo.repoUrl),
+              mode: LaunchMode.externalApplication,
+            ),
           ),
         ]),
         const SizedBox(height: 24),
