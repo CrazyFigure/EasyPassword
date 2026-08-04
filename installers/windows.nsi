@@ -3,6 +3,9 @@
 
 !include "MUI2.nsh"
 
+; Use LZMA solid compression to minimize installer size
+SetCompressor /SOLID lzma
+
 !define PRODUCT_NAME "EasyPassword"
 !ifndef VERSION
   !define VERSION "1.0.0"
