@@ -44,6 +44,7 @@ VIAddVersionKey "ProductVersion" "${VERSION}"
 Section "MainSection" SEC01
   SetOutPath "$INSTDIR"
   SetOverwrite ifnewer
+  ; SOURCE must be an absolute Windows path (e.g. D:\a\...\Release)
   File /r "${SOURCE}\*.*"
   CreateDirectory "$SMPROGRAMS\EasyPassword"
   CreateShortCut "$SMPROGRAMS\EasyPassword\EasyPassword.lnk" "$INSTDIR\easypassword.exe"

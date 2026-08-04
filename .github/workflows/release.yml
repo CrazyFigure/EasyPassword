@@ -99,9 +99,12 @@ jobs:
           # 注意：用 -VERSION 而非 /VERSION，避免 Git Bash 将 /VERSION 当作路径转换
           "$MAKENSIS" -VERSION
           echo "=== 开始打包 ==="
+          # NSIS 的 File /r 仅对绝对 Windows 路径 + 反斜杠通配符可靠
+          RELEASE_DIR="$(cygpath -w "$GITHUB_WORKSPACE/build/windows/x64/runner/Release")"
+          echo "release dir: $RELEASE_DIR"
           "$MAKENSIS" -DVERSION="$VERSION" -DAPP_NAME="EasyPassword" \
             -DOUTPUT="dist/EasyPassword-Setup-$VERSION.exe" \
-            -DSOURCE="build/windows/x64/runner/Release" \
+            -DSOURCE="$RELEASE_DIR" \
             installers/windows.nsi
           ls -la dist/
 
