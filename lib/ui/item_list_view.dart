@@ -178,14 +178,24 @@ class _ItemListViewState extends State<ItemListView> {
       for (var i = 0; i < items.length; i++)
         _buildItemCard(state, items[i], customSort),
     ];
-    return ReorderableListView.builder(
+    // 治本说明：Flutter 3.44.8 起 ReorderableListView.builder 要求
+    // onReorderItem 与 onReorder 必须"恰好一个非空"。当 customSort=false
+    // （默认按名称排序）时，强行传入 onReorderItem:null 会触发断言导致整个
+    // 页面红色错误。这里按 customSort 分流 widget：开启拖动排序才用
+    // ReorderableListView.builder，否则用普通 ListView（无拖动也避免断言）。
+    if (customSort) {
+      return ReorderableListView.builder(
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 80),
+        itemCount: children.length,
+        buildDefaultDragHandles: true,
+        onReorderItem: (oldIndex, newIndex) =>
+            _onReorder(state, items, oldIndex, newIndex),
+        itemBuilder: (context, index) => children[index],
+      );
+    }
+    return ListView(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 80),
-      itemCount: children.length,
-      buildDefaultDragHandles: customSort,
-      onReorderItem: customSort
-          ? (oldIndex, newIndex) => _onReorder(state, items, oldIndex, newIndex)
-          : null,
-      itemBuilder: (context, index) => children[index],
+      children: children,
     );
   }
 

@@ -139,7 +139,8 @@ class AppState extends ChangeNotifier {
           : '同步完成';
       await refresh();
     } catch (e) {
-      syncMessage = '同步失败：$e';
+      syncMessage =
+          '同步失败：${e.toString().replaceFirst('Exception: ', '')}';
     } finally {
       syncing = false;
       notifyListeners();
