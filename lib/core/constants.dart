@@ -66,6 +66,22 @@ class DbKeys {
   static const String revealAll = 'reveal_all'; // 是否显示全部密码
 }
 
+/// ---- 应用信息与更新检查（对齐 GitHub Releases 版本号）----
+class AppInfo {
+  /// 当前版本：与 pubspec.yaml version 保持一致，CI 按 tag 出包（v1.1.0 -> 1.1.0）
+  static const String currentVersion = '1.1.0';
+
+  /// GitHub 仓库主页
+  static const String repoUrl = 'https://github.com/CrazyFigure/EasyPassword';
+
+  /// GitHub Releases 页面（有新版本时引导用户跳转下载）
+  static const String releasePageUrl = '$repoUrl/releases/latest';
+
+  /// GitHub API 最新 Release 接口（检测更新用）
+  static const String releaseApiUrl =
+      'https://api.github.com/repos/CrazyFigure/EasyPassword/releases/latest';
+}
+
 /// 条目类型（3.1 两类数据分离）
 class ItemType {
   static const String password = 'password';

@@ -10,6 +10,7 @@ import '../models/password_item.dart';
 import '../state/app_state.dart';
 import 'detail/apikey_detail_page.dart';
 import 'detail/password_detail_page.dart';
+import 'sort_dialog.dart';
 
 class ItemListView extends StatefulWidget {
   final String type;
@@ -270,40 +271,21 @@ class _ItemListViewState extends State<ItemListView> {
   }
 }
 
-/// 排序方式菜单（3.5.5：默认名称升序 / 自定义）
+/// 排序方式入口（现代化：居中卡片式单选弹窗，替代旧式 showMenu 弹出菜单）
 class _SortMenuButton extends StatelessWidget {
   const _SortMenuButton();
 
   @override
   Widget build(BuildContext context) {
+    final state = context.watch<AppState>();
     return IconButton(
       icon: const Icon(Icons.sort, color: AppColors.textMain),
       tooltip: '排序',
       onPressed: () async {
         if (!context.mounted) return;
-        final choice = await showMenu<String>(
-          context: context,
-          position: RelativeRect.fromLTRB(200, 80, 16, 0),
-          items: const [
-            PopupMenuItem(
-              value: 'name_asc',
-              child: Row(children: [
-                Icon(Icons.sort_by_alpha, size: 18),
-                SizedBox(width: 8),
-                Text('按名称升序'),
-              ]),
-            ),
-            PopupMenuItem(
-              value: 'custom',
-              child: Row(children: [
-                Icon(Icons.swap_vert, size: 18),
-                SizedBox(width: 8),
-                Text('自定义排序（长按拖动）'),
-              ]),
-            ),
-          ],
-        );
-        if (choice != null && context.mounted) {
+        // 居中弹窗选择排序方式；高亮当前模式，返回 null 表示未变更
+        final choice = await showSortModeDialog(context, state.sortMode);
+        if (choice != null && choice != state.sortMode && context.mounted) {
           await context.read<AppState>().updateSortMode(choice);
         }
       },

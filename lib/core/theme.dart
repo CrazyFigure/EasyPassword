@@ -18,11 +18,11 @@ class AppTheme {
         error: AppColors.danger,
       ),
       scaffoldBackgroundColor: AppColors.background,
-      fontFamily: 'Roboto',
+      // 使用系统默认字体（Windows/Android 均由系统字体栈渲染，
+      // 不指定 fontFamily 以避免自定义字体缺失时回退不一致）
     );
 
     final textTheme = base.textTheme.apply(
-      fontFamily: 'Roboto',
       bodyColor: AppColors.textMain,
       displayColor: AppColors.textMain,
     );

@@ -68,40 +68,28 @@ class _SearchPageState extends State<SearchPage> {
                   fontWeight: FontWeight.w700,
                   color: AppColors.textMain)),
         ),
-        // 搜索框 + 取消
+        // 搜索框（不自动聚焦：切到搜索页时不主动弹出键盘，需要输入时再点击）
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _controller,
-                  autofocus: true,
-                  decoration: InputDecoration(
-                    hintText: '搜索网站/App、备注、用户名、密码、API Key...',
-                    prefixIcon:
-                        const Icon(Icons.search, color: AppColors.textWeak),
-                    suffixIcon: _controller.text.isNotEmpty
-                        ? IconButton(
-                            icon: const Icon(Icons.clear,
-                                size: 18, color: AppColors.textWeak),
-                            onPressed: () {
-                              _controller.clear();
-                              _doSearch('');
-                            },
-                          )
-                        : null,
-                  ),
-                  onChanged: _doSearch,
-                  textInputAction: TextInputAction.search,
-                ),
-              ),
-              const SizedBox(width: 8),
-              TextButton(
-                onPressed: () => context.read<AppState>().setTab('password'),
-                child: const Text('取消'),
-              ),
-            ],
+          child: TextField(
+            controller: _controller,
+            decoration: InputDecoration(
+              hintText: '搜索网站/App、备注、用户名、密码、API Key...',
+              prefixIcon:
+                  const Icon(Icons.search, color: AppColors.textWeak),
+              suffixIcon: _controller.text.isNotEmpty
+                  ? IconButton(
+                      icon: const Icon(Icons.clear,
+                          size: 18, color: AppColors.textWeak),
+                      onPressed: () {
+                        _controller.clear();
+                        _doSearch('');
+                      },
+                    )
+                  : null,
+            ),
+            onChanged: _doSearch,
+            textInputAction: TextInputAction.search,
           ),
         ),
         const SizedBox(height: 10),

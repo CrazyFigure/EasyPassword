@@ -13,6 +13,7 @@ import '../../models/password_item.dart';
 import '../../state/app_state.dart';
 import '../account_edit_sheet.dart';
 import '../apikey_edit_sheet.dart';
+import '../center_dialog.dart';
 import '../item_edit_sheet.dart';
 
 class ApiKeyDetailPage extends StatefulWidget {
@@ -156,9 +157,8 @@ class _ApiKeyDetailPageState extends State<ApiKeyDetailPage> {
   }
 
   Future<void> _editItem() async {
-    final result = await showModalBottomSheet<Map<String, dynamic>>(
+    final result = await showCenterDialog<Map<String, dynamic>>(
       context: context,
-      isScrollControlled: true,
       builder: (_) => ItemEditSheet(type: _item.type, item: _item),
     );
     if (result != null && mounted) {
@@ -202,9 +202,8 @@ class _ApiKeyDetailPageState extends State<ApiKeyDetailPage> {
   }
 
   Future<void> _addUser() async {
-    final result = await showModalBottomSheet<Map<String, dynamic>>(
+    final result = await showCenterDialog<Map<String, dynamic>>(
       context: context,
-      isScrollControlled: true,
       builder: (_) => const AccountEditSheet(),
     );
     if (result != null && mounted) {
@@ -400,9 +399,8 @@ class _UserCardState extends State<_UserCard> {
   }
 
   Future<void> _addKey() async {
-    final result = await showModalBottomSheet<Map<String, dynamic>>(
+    final result = await showCenterDialog<Map<String, dynamic>>(
       context: context,
-      isScrollControlled: true,
       builder: (_) => const ApiKeyEditSheet(),
     );
     if (result != null && mounted) {
@@ -418,9 +416,8 @@ class _UserCardState extends State<_UserCard> {
   }
 
   Future<void> _editUser() async {
-    final result = await showModalBottomSheet<Map<String, dynamic>>(
+    final result = await showCenterDialog<Map<String, dynamic>>(
       context: context,
-      isScrollControlled: true,
       builder: (_) => AccountEditSheet(account: widget.account),
     );
     if (result != null && mounted) {
@@ -549,9 +546,8 @@ class _ApiKeyTileState extends State<_ApiKeyTile> {
   }
 
   Future<void> _edit() async {
-    final result = await showModalBottomSheet<Map<String, dynamic>>(
+    final result = await showCenterDialog<Map<String, dynamic>>(
       context: context,
-      isScrollControlled: true,
       builder: (_) => ApiKeyEditSheet(apiKey: widget.apiKey),
     );
     if (result != null && mounted) {

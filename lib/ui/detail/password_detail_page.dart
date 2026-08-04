@@ -10,6 +10,7 @@ import '../../models/account.dart';
 import '../../models/password_item.dart';
 import '../../state/app_state.dart';
 import '../account_edit_sheet.dart';
+import '../center_dialog.dart';
 import '../item_edit_sheet.dart';
 
 class PasswordDetailPage extends StatefulWidget {
@@ -156,9 +157,8 @@ class _PasswordDetailPageState extends State<PasswordDetailPage> {
   }
 
   Future<void> _editItem() async {
-    final result = await showModalBottomSheet<Map<String, dynamic>>(
+    final result = await showCenterDialog<Map<String, dynamic>>(
       context: context,
-      isScrollControlled: true,
       builder: (_) => ItemEditSheet(type: _item.type, item: _item),
     );
     if (result != null && mounted) {
@@ -202,9 +202,8 @@ class _PasswordDetailPageState extends State<PasswordDetailPage> {
   }
 
   Future<void> _addAccount() async {
-    final result = await showModalBottomSheet<Map<String, dynamic>>(
+    final result = await showCenterDialog<Map<String, dynamic>>(
       context: context,
-      isScrollControlled: true,
       builder: (_) => const AccountEditSheet(),
     );
     if (result != null && mounted) {
@@ -444,9 +443,8 @@ class _AccountCardState extends State<_AccountCard> {
   }
 
   Future<void> _edit() async {
-    final result = await showModalBottomSheet<Map<String, dynamic>>(
+    final result = await showCenterDialog<Map<String, dynamic>>(
       context: context,
-      isScrollControlled: true,
       builder: (_) => AccountEditSheet(account: widget.account),
     );
     if (result != null && mounted) {
