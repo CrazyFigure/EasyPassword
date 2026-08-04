@@ -96,7 +96,8 @@ jobs:
             exit 1
           fi
           echo "using makensis: $MAKENSIS"
-          "$MAKENSIS" /VERSION
+          # 注意：用 -VERSION 而非 /VERSION，避免 Git Bash 将 /VERSION 当作路径转换
+          "$MAKENSIS" -VERSION
           echo "=== 开始打包 ==="
           "$MAKENSIS" -DVERSION="$VERSION" -DAPP_NAME="EasyPassword" \
             -DOUTPUT="dist/EasyPassword-Setup-$VERSION.exe" \
