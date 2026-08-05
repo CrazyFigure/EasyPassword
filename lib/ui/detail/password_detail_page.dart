@@ -9,8 +9,10 @@ import '../../core/constants.dart';
 import '../../models/account.dart';
 import '../../models/password_item.dart';
 import '../../state/app_state.dart';
-import '../account_edit_sheet.dart';
 import '../center_dialog.dart';
+import '../common/copy_util.dart';
+import '../common/drag_handle.dart';
+import '../common/inline_edit_form.dart';
 import '../item_edit_sheet.dart';
 
 class PasswordDetailPage extends StatefulWidget {
@@ -25,7 +27,8 @@ class _PasswordDetailPageState extends State<PasswordDetailPage> {
   late PasswordItem _item;
   List<Account> _accounts = [];
   bool _loading = true;
-  bool _reveal = false; // 本页"显示全部"开关（叠加全局开关）
+  bool _reveal = false; // 本页"显示全部"开关
+  bool _adding = false; // 是否正在就地新增账号
 
   @override
   void initState() {
@@ -46,8 +49,7 @@ class _PasswordDetailPageState extends State<PasswordDetailPage> {
 
   @override
   Widget build(BuildContext context) {
-    final state = context.watch<AppState>();
-    final showAll = state.revealAll || _reveal;
+    final showAll = _reveal;
 
     return Scaffold(
       appBar: AppBar(
@@ -72,13 +74,14 @@ class _PasswordDetailPageState extends State<PasswordDetailPage> {
           : ListView(
               padding: const EdgeInsets.all(16),
               children: [
-                // 站点信息头
+                // 站点信息头（URL 可复制）
                 _SiteHeader(item: _item),
                 const SizedBox(height: 12),
-                // 网站级备注
+                // 网站级备注（可复制）
                 _NoteCard(
                   label: '网站级备注',
                   text: _item.siteNote.isEmpty ? '暂无备注' : _item.siteNote,
+                  copyText: _item.siteNote,
                 ),
                 const SizedBox(height: 12),
                 // 显示全部开关（单页）
@@ -108,26 +111,59 @@ class _PasswordDetailPageState extends State<PasswordDetailPage> {
                 ),
                 const SizedBox(height: 8),
                 // 账号卡片（可拖动排序，需求 1.3）
+                // 拖动把手统一由 ReorderableListView 提供：桌面端 buildDefaultDragHandles
+                // 会自动在行尾叠加一个默认把手，卡片内若再画一个 drag_handle 图标就会
+                // 重复且错位（Windows 上尤其明显）。这里关掉默认把手，改由卡片内的
+                // ReorderableDragStartListener 显式包裹唯一的把手图标。
                 ReorderableListView.builder(
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
-                  buildDefaultDragHandles: true,
+                  buildDefaultDragHandles: false,
+                  proxyDecorator: roundedDragProxy,
                   itemCount: _accounts.length,
                   onReorderItem: _onReorder,
                   itemBuilder: (context, index) => _AccountCard(
                     key: ValueKey(_accounts[index].id),
+                    index: index,
                     account: _accounts[index],
                     showAll: showAll,
                     onChanged: _load,
                   ),
                 ),
+                // 新增账号：就地展开编辑卡片，不再弹窗
+                if (_adding)
+                  InlineEditForm(
+                    title: '添加账号',
+                    requiredKeys: const {'username'},
+                    fields: const [
+                      InlineField(
+                        key: 'username',
+                        label: '用户名',
+                        hint: '例如：user@example.com',
+                      ),
+                      InlineField(
+                        key: 'password',
+                        label: '密码',
+                        hint: '请输入密码',
+                        obscure: true,
+                      ),
+                      InlineField(
+                        key: 'note',
+                        label: '用户级备注',
+                        maxLines: 2,
+                      ),
+                    ],
+                    onCancel: () => setState(() => _adding = false),
+                    onSave: _saveNewAccount,
+                  ),
                 const SizedBox(height: 12),
                 // 添加账号
-                OutlinedButton.icon(
-                  icon: const Icon(Icons.add, size: 18),
-                  label: const Text('添加账号'),
-                  onPressed: _addAccount,
-                ),
+                if (!_adding)
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.add, size: 18),
+                    label: const Text('添加账号'),
+                    onPressed: () => setState(() => _adding = true),
+                  ),
                 const SizedBox(height: 12),
                 // 浏览器跳转（需求 1.4：二次确认）
                 if (_item.url.isNotEmpty)
@@ -138,7 +174,7 @@ class _PasswordDetailPageState extends State<PasswordDetailPage> {
                       side: const BorderSide(color: AppColors.primary),
                     ),
                     icon: const Icon(Icons.open_in_browser, size: 18),
-                    label: const Text('在浏览器中打开（需二次确认）'),
+                    label: const Text('在浏览器中打开'),
                     onPressed: _openBrowser,
                   ),
               ],
@@ -201,22 +237,19 @@ class _PasswordDetailPageState extends State<PasswordDetailPage> {
     }
   }
 
-  Future<void> _addAccount() async {
-    final result = await showCenterDialog<Map<String, dynamic>>(
-      context: context,
-      builder: (_) => const AccountEditSheet(),
+  /// 就地新增账号保存
+  Future<void> _saveNewAccount(Map<String, String> values) async {
+    final state = context.read<AppState>();
+    await state.data.addAccount(
+      _item.id,
+      values['username'] ?? '',
+      values['password'] ?? '',
+      note: values['note'] ?? '',
     );
-    if (result != null && mounted) {
-      final state = context.read<AppState>();
-      await state.data.addAccount(
-        _item.id,
-        result['username'] as String? ?? '',
-        result['password'] as String? ?? '',
-        note: result['note'] as String? ?? '',
-      );
-      await _load();
-      await state.refresh();
-    }
+    if (!mounted) return;
+    setState(() => _adding = false);
+    await _load();
+    await state.refresh();
   }
 
   Future<void> _openBrowser() async {
@@ -285,16 +318,23 @@ class _SiteHeader extends StatelessWidget {
             ],
           ),
         ),
+        // 网址可复制
+        if (item.url.isNotEmpty)
+          CopyIconButton(
+            label: '网址',
+            onResolve: () async => item.url,
+          ),
       ],
     );
   }
 }
 
-/// 备注卡片
+/// 备注卡片（可选复制）
 class _NoteCard extends StatelessWidget {
   final String label;
   final String text;
-  const _NoteCard({required this.label, required this.text});
+  final String? copyText; // 非空时展示复制按钮
+  const _NoteCard({required this.label, required this.text, this.copyText});
 
   @override
   Widget build(BuildContext context) {
@@ -304,32 +344,47 @@ class _NoteCard extends StatelessWidget {
         color: AppColors.background,
         borderRadius: BorderRadius.circular(12),
       ),
-      child: Column(
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label,
-              style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                  color: AppColors.textWeak)),
-          const SizedBox(height: 4),
-          Text(text,
-              style: const TextStyle(
-                  fontSize: 13, color: AppColors.textMain)),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label,
+                    style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: AppColors.textWeak)),
+                const SizedBox(height: 4),
+                Text(text,
+                    style: const TextStyle(
+                        fontSize: 13, color: AppColors.textMain)),
+              ],
+            ),
+          ),
+          if (copyText != null && copyText!.isNotEmpty)
+            CopyIconButton(
+              label: '备注',
+              size: 16,
+              onResolve: () async => copyText!,
+            ),
         ],
       ),
     );
   }
 }
 
-/// 账号卡片（用户名 + 密码遮挡 + 用户级备注）
+/// 账号卡片（用户名 + 密码遮挡 + 用户级备注 + 就地编辑）
 class _AccountCard extends StatefulWidget {
+  final int index; // 列表下标，供拖动把手使用
   final Account account;
   final bool showAll;
   final VoidCallback onChanged;
 
   const _AccountCard({
     super.key,
+    required this.index,
     required this.account,
     required this.showAll,
     required this.onChanged,
@@ -342,11 +397,76 @@ class _AccountCard extends StatefulWidget {
 class _AccountCardState extends State<_AccountCard> {
   bool _revealed = false;
   String? _plain; // 解密后的密码（按需解密）
+  bool _editing = false; // 是否处于就地编辑态
 
-  bool get _visible => widget.showAll || _revealed;
+  @override
+  void initState() {
+    super.initState();
+    // 进入时若父级已开启"显示全部"，同步为可见
+    _revealed = widget.showAll;
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // context 可用后再解密（initState 中不能安全 read<AppState>）
+    if (_revealed) _ensurePlain();
+  }
+
+  @override
+  void didUpdateWidget(covariant _AccountCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 父级"显示全部"开关变化时，整体跟随（之后单条按钮仍可独立切换）
+    if (widget.showAll != oldWidget.showAll) {
+      _revealed = widget.showAll;
+      if (_revealed) _ensurePlain();
+    }
+  }
+
+  /// 按需解密明文密码，解密完成后刷新
+  Future<void> _ensurePlain() async {
+    if (_plain != null) return;
+    final state = context.read<AppState>();
+    final plain = await state.data.plainPassword(widget.account);
+    if (mounted) setState(() => _plain = plain);
+  }
+
+  bool get _visible => _revealed;
 
   @override
   Widget build(BuildContext context) {
+    // 就地编辑态：整张卡片替换为编辑表单（密码需先解密以便回填）
+    if (_editing) {
+      return InlineEditForm(
+        title: '编辑账号',
+        requiredKeys: const {'username'},
+        fields: [
+          InlineField(
+            key: 'username',
+            label: '用户名',
+            initial: widget.account.username,
+          ),
+          InlineField(
+            key: 'password',
+            label: '密码',
+            obscure: true,
+            // 编辑时带出原密码（按需解密），可用小眼睛查看
+            resolveInitial: () async {
+              final state = context.read<AppState>();
+              return _plain ?? await state.data.plainPassword(widget.account);
+            },
+          ),
+          InlineField(
+            key: 'note',
+            label: '用户级备注',
+            initial: widget.account.note,
+            maxLines: 2,
+          ),
+        ],
+        onCancel: () => setState(() => _editing = false),
+        onSave: _saveEdit,
+      );
+    }
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(14),
@@ -358,10 +478,18 @@ class _AccountCardState extends State<_AccountCard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 行头：账号序号 + 拖动把手 + 操作
+          // 顶部居中的拖动把手（横向短杠，视觉上像卡片抓取条）
+          Center(
+            child: DragHandle(
+              index: widget.index,
+              icon: Icons.drag_handle,
+              size: 22,
+            ),
+          ),
+          // 行头：账号序号 + 操作
           Row(
             children: [
-              Text('账号 ${widget.account.sortOrder + 1}',
+              Text('账号 ${widget.index + 1}',
                   style: const TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w600,
@@ -370,19 +498,21 @@ class _AccountCardState extends State<_AccountCard> {
               IconButton(
                 icon: const Icon(Icons.edit_outlined,
                     size: 18, color: AppColors.textWeak),
-                onPressed: _edit,
+                tooltip: '编辑',
+                visualDensity: VisualDensity.compact,
+                onPressed: () => setState(() => _editing = true),
               ),
               IconButton(
                 icon: const Icon(Icons.delete_outline,
                     size: 18, color: AppColors.danger),
+                tooltip: '删除',
+                visualDensity: VisualDensity.compact,
                 onPressed: _delete,
               ),
-              const Icon(Icons.drag_handle,
-                  size: 20, color: AppColors.textFaint),
             ],
           ),
           const SizedBox(height: 4),
-          // 用户名
+          // 用户名（可复制）
           Row(children: [
             const Text('用户名',
                 style: TextStyle(fontSize: 13, color: AppColors.textWeak)),
@@ -394,9 +524,13 @@ class _AccountCardState extends State<_AccountCard> {
                       fontWeight: FontWeight.w500,
                       color: AppColors.textMain)),
             ),
+            CopyIconButton(
+              label: '用户名',
+              onResolve: () async => widget.account.username,
+            ),
           ]),
           const SizedBox(height: 6),
-          // 密码行（遮挡 / 显示）
+          // 密码行（遮挡 / 显示 / 复制）
           Row(children: [
             const Text('密码',
                 style: TextStyle(fontSize: 13, color: AppColors.textWeak)),
@@ -410,6 +544,14 @@ class _AccountCardState extends State<_AccountCard> {
                     color: AppColors.textMain),
               ),
             ),
+            // 复制无需先显示：按需解密后直接进剪贴板
+            CopyIconButton(
+              label: '密码',
+              onResolve: () async {
+                final state = context.read<AppState>();
+                return _plain ?? await state.data.plainPassword(widget.account);
+              },
+            ),
             // 单条查看按钮（需求 1.1）
             IconButton(
               icon: Icon(
@@ -417,15 +559,26 @@ class _AccountCardState extends State<_AccountCard> {
                 size: 18,
                 color: AppColors.textWeak,
               ),
+              tooltip: _visible ? '隐藏' : '显示',
+              visualDensity: VisualDensity.compact,
               onPressed: _toggleReveal,
             ),
           ]),
-          // 用户级备注
+          // 用户级备注（可复制）
           if (widget.account.note.isNotEmpty) ...[
             const SizedBox(height: 4),
-            Text('备注：${widget.account.note}',
-                style: const TextStyle(
-                    fontSize: 12, color: AppColors.textWeak)),
+            Row(children: [
+              Expanded(
+                child: Text('备注：${widget.account.note}',
+                    style: const TextStyle(
+                        fontSize: 12, color: AppColors.textWeak)),
+              ),
+              CopyIconButton(
+                label: '备注',
+                size: 16,
+                onResolve: () async => widget.account.note,
+              ),
+            ]),
           ],
         ],
       ),
@@ -434,29 +587,28 @@ class _AccountCardState extends State<_AccountCard> {
 
   Future<void> _toggleReveal() async {
     // 需要明文时异步解密
-    if (!_visible && _plain == null) {
-      final state = context.read<AppState>();
-      _plain = await state.data.plainPassword(widget.account);
-    }
+    if (!_visible) await _ensurePlain();
     if (mounted) setState(() => _revealed = !_revealed);
   }
 
-  Future<void> _edit() async {
-    final result = await showCenterDialog<Map<String, dynamic>>(
-      context: context,
-      builder: (_) => AccountEditSheet(account: widget.account),
+  /// 就地编辑保存
+  Future<void> _saveEdit(Map<String, String> values) async {
+    final state = context.read<AppState>();
+    final newPwd = values['password'] ?? '';
+    await state.data.updateAccount(
+      widget.account.copyWith(
+        username: values['username'] ?? widget.account.username,
+        note: values['note'] ?? widget.account.note,
+      ),
+      // 已带出原值，清空视为不改动（避免误设为空密码）
+      newPassword: newPwd.isEmpty ? null : newPwd,
     );
-    if (result != null && mounted) {
-      final state = context.read<AppState>();
-      await state.data.updateAccount(
-        widget.account.copyWith(
-          username: result['username'] as String? ?? widget.account.username,
-          note: result['note'] as String? ?? widget.account.note,
-        ),
-        newPassword: result['password'] as String?,
-      );
-      widget.onChanged();
-    }
+    if (!mounted) return;
+    setState(() => _editing = false);
+    // 密码可能已变更，清除明文缓存；仍在显示状态则重新解密
+    _plain = null;
+    if (_revealed) await _ensurePlain();
+    widget.onChanged();
   }
 
   Future<void> _delete() async {

@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import '../core/constants.dart';
 import '../models/password_item.dart';
 import '../state/app_state.dart';
+import 'common/drag_handle.dart';
 import 'detail/apikey_detail_page.dart';
 import 'detail/password_detail_page.dart';
 import 'sort_dialog.dart';
@@ -75,53 +76,50 @@ class _ItemListViewState extends State<ItemListView> {
     );
   }
 
-  // ---- 工具行：显示全部开关 + 批量操作 ----
+  // ---- 工具行：批量操作 ----
   Widget _buildToolRow(BuildContext context, AppState state) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       child: Row(
         children: [
-          // 显示全部开关（需求 1.1 / 2.1）
-          InkWell(
-            onTap: state.toggleRevealAll,
-            borderRadius: BorderRadius.circular(6),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    state.revealAll
-                        ? Icons.visibility
-                        : Icons.visibility_off,
-                    size: 16,
-                    color: AppColors.primary,
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    state.revealAll ? '已显示全部' : '显示全部',
-                    style: const TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                        color: AppColors.primary),
-                  ),
-                ],
-              ),
+          // 批量模式下左侧提示已选数量
+          if (_batchMode)
+            Text(
+              '已选 ${_selected.length} 项',
+              style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                  color: AppColors.textSecondary),
             ),
-          ),
           const Spacer(),
+          // 批量模式下提供退出入口
+          if (_batchMode) ...[
+            TextButton(
+              style: TextButton.styleFrom(
+                minimumSize: const Size(56, 32),
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                visualDensity: VisualDensity.compact,
+                foregroundColor: AppColors.textSecondary,
+              ),
+              onPressed: _exitBatch,
+              child: const Text('取消', style: TextStyle(fontSize: 12)),
+            ),
+            const SizedBox(width: 8),
+          ],
           // 批量操作（需求 3.4）
           OutlinedButton(
             style: OutlinedButton.styleFrom(
               minimumSize: const Size(72, 32),
               padding: const EdgeInsets.symmetric(horizontal: 12),
               visualDensity: VisualDensity.compact,
+              // 有选中项时用危险色强调删除动作
+              foregroundColor: _batchMode && _selected.isNotEmpty
+                  ? AppColors.danger
+                  : null,
             ),
             onPressed: _batchMode ? _confirmBatchDelete : _enterBatch,
             child: Text(
-              _batchMode
-                  ? '删除(${_selected.length})'
-                  : (_isApi ? '批量' : '批量'),
+              _batchMode ? '删除(${_selected.length})' : '批量',
               style: const TextStyle(fontSize: 12),
             ),
           ),
@@ -133,6 +131,14 @@ class _ItemListViewState extends State<ItemListView> {
   void _enterBatch() {
     setState(() {
       _batchMode = true;
+      _selected.clear();
+    });
+  }
+
+  /// 退出批量模式并清空选择
+  void _exitBatch() {
+    setState(() {
+      _batchMode = false;
       _selected.clear();
     });
   }
@@ -177,7 +183,7 @@ class _ItemListViewState extends State<ItemListView> {
     }
     final children = <Widget>[
       for (var i = 0; i < items.length; i++)
-        _buildItemCard(state, items[i], customSort),
+        _buildItemCard(state, items[i], customSort, i),
     ];
     // 治本说明：Flutter 3.44.8 起 ReorderableListView.builder 要求
     // onReorderItem 与 onReorder 必须"恰好一个非空"。当 customSort=false
@@ -188,7 +194,10 @@ class _ItemListViewState extends State<ItemListView> {
       return ReorderableListView.builder(
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 80),
         itemCount: children.length,
-        buildDefaultDragHandles: true,
+        // 关闭默认把手：桌面端会自动叠加一个，与卡片内的把手重复错位
+        buildDefaultDragHandles: false,
+        // 拖动预览保持圆角，避免露出方形底板
+        proxyDecorator: roundedDragProxy,
         onReorderItem: (oldIndex, newIndex) =>
             _onReorder(state, items, oldIndex, newIndex),
         itemBuilder: (context, index) => children[index],
@@ -210,12 +219,15 @@ class _ItemListViewState extends State<ItemListView> {
     await state.refresh();
   }
 
-  Widget _buildItemCard(AppState state, PasswordItem item, bool customSort) {
+  Widget _buildItemCard(
+      AppState state, PasswordItem item, bool customSort, int index) {
     final selected = _selected.contains(item.id);
     return Card(
       key: ValueKey(item.id),
       margin: const EdgeInsets.only(bottom: 10),
       color: selected ? AppColors.primaryLight : Colors.white,
+      // 拖动时圆角一致
+      clipBehavior: Clip.antiAlias,
       child: ListTile(
         onTap: () {
           if (_batchMode) {
@@ -261,9 +273,12 @@ class _ItemListViewState extends State<ItemListView> {
                 selected ? Icons.check_circle : Icons.circle_outlined,
                 color: selected ? AppColors.primary : AppColors.textFaint,
               )
+            // 自定义排序：外观仍是右箭头，但可按住拖动排序
             : customSort
-                ? const Icon(Icons.drag_handle,
-                    color: AppColors.textFaint, size: 20)
+                ? DragHandle(
+                    index: index,
+                    icon: Icons.chevron_right,
+                  )
                 : const Icon(Icons.chevron_right,
                     color: AppColors.textFaint),
       ),
