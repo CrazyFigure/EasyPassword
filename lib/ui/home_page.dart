@@ -246,7 +246,6 @@ class _AddItemSheetState extends State<_AddItemSheet> {
           const SizedBox(height: 12),
           TextField(
             controller: _noteCtrl,
-            maxLines: 2,
             decoration: const InputDecoration(
               labelText: '网站级备注',
               hintText: '备注信息',

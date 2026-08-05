@@ -54,7 +54,8 @@ class SearchService {
     }
 
     for (final type in types) {
-      final items = await data.listItems(type);
+      // 搜索跨文件夹：文件夹内的条目也必须能被搜到
+      final items = await data.listItems(type, allFolders: true);
       for (final item in items) {
         // 1) 条目名 / 网站级备注
         if (item.name.toLowerCase().contains(q)) {

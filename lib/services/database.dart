@@ -12,7 +12,9 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 class DatabaseService {
   static Database? _db;
-  static const int _version = 1;
+  // v2：新增 folders 表与 password_items.folder_id（文件夹分组）
+  // v3：folders 新增 color 列（文件夹自定义颜色）
+  static const int _version = 3;
 
   /// 测试时可注入内存数据库路径（如 sqflite_common_ffi 的 inMemoryDatabasePath）
   @visibleForTesting
@@ -39,6 +41,7 @@ class DatabaseService {
           await db.execute('PRAGMA foreign_keys = ON');
         },
         onCreate: _onCreate,
+        onUpgrade: _onUpgrade,
       ),
     );
   }
@@ -63,6 +66,7 @@ class DatabaseService {
         name TEXT NOT NULL,
         url TEXT DEFAULT '',
         site_note TEXT DEFAULT '',
+        folder_id TEXT,
         sort_order INTEGER DEFAULT 0,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL,
@@ -97,12 +101,48 @@ class DatabaseService {
     await db.execute('CREATE INDEX idx_accounts_item ON accounts(item_id)');
     await db.execute('CREATE INDEX idx_keys_account ON api_keys(account_id)');
     await db.execute('CREATE INDEX idx_items_type ON password_items(type)');
+    await _createFolderSchema(db);
     await db.execute('''
       CREATE TABLE settings (
         key TEXT PRIMARY KEY,
         value TEXT DEFAULT ''
       )
     ''');
+  }
+
+  /// 文件夹表与相关索引（v2 新增，建库与升级共用）
+  static Future<void> _createFolderSchema(Database db) async {
+    await db.execute('''
+      CREATE TABLE folders (
+        id TEXT PRIMARY KEY,
+        type TEXT NOT NULL,
+        name TEXT NOT NULL,
+        color INTEGER,
+        sort_order INTEGER DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        deleted INTEGER DEFAULT 0
+      )
+    ''');
+    await db.execute('CREATE INDEX idx_folders_type ON folders(type)');
+    await db
+        .execute('CREATE INDEX idx_items_folder ON password_items(folder_id)');
+  }
+
+  /// 版本迁移：
+  /// v1 → v2：补齐 folders 表与 password_items.folder_id 列，已有数据
+  ///          folder_id 保持 NULL（全部落在根目录），不影响现有条目。
+  /// v2 → v3：folders 补 color 列，NULL 表示沿用主题默认色。
+  static Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      await db.execute('ALTER TABLE password_items ADD COLUMN folder_id TEXT');
+      // v2 的建表语句此时已含 color 列，无需再执行 v3 的 ALTER
+      await _createFolderSchema(db);
+      return;
+    }
+    if (oldVersion < 3) {
+      await db.execute('ALTER TABLE folders ADD COLUMN color INTEGER');
+    }
   }
 
   /// 读取单值设置
