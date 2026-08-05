@@ -28,6 +28,14 @@ InstallDir "$PROGRAMFILES64\EasyPassword"
 InstallDirRegKey HKLM "${PRODUCT_UNINST_KEY}" "UninstallString"
 RequestExecutionLevel admin
 
+; 安装器自身图标（任务栏/资源管理器/任务管理器）。
+; 路径可通过 -DMUI_ICON_PATH="xxx" 覆盖，默认取同目录 installer.ico
+!ifndef MUI_ICON_PATH
+  !define MUI_ICON_PATH "${NSISDIR}\installer.ico"
+!endif
+!define MUI_ICON "${MUI_ICON_PATH}"
+!define MUI_UNICON "${MUI_ICON_PATH}"
+
 VIProductVersion "${VERSION}.0"
 VIAddVersionKey "ProductName" "${PRODUCT_NAME}"
 VIAddVersionKey "FileVersion" "${VERSION}"
