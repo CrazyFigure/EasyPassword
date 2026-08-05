@@ -114,9 +114,14 @@ jobs:
           mkdir -p dist
           echo "release dir: $RELEASE_DIR"
           echo "output: $OUTPUT_EXE"
+          # 传绝对 Windows 路径的图标给 makensis，避免其进程 CWD 与脚本基准不一致
+          # 导致 "installers\installer.ico" 相对路径解析失败
+          ICON_EXE="$(cygpath -w "$GITHUB_WORKSPACE/installers/installer.ico")"
+          echo "icon: $ICON_EXE"
           "$MAKENSIS" -DVERSION="$VERSION" -DAPP_NAME="EasyPassword" \
             -DOUTPUT="$OUTPUT_EXE" \
             -DSOURCE="$RELEASE_DIR" \
+            -DMUI_ICON_PATH="$ICON_EXE" \
             installers/windows.nsi
           ls -la dist/
 
