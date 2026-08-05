@@ -329,7 +329,7 @@ class _UserCardState extends State<_UserCard> {
               child: Text(
                 _pwdRevealed ? (_plainPwd ?? '********') : '********',
                 style: const TextStyle(
-                    fontSize: 13, color: AppColors.textMain, fontFamily: 'monospace'),
+                    fontSize: 13, color: AppColors.textMain),
               ),
             ),
             IconButton(
@@ -501,7 +501,7 @@ class _ApiKeyTileState extends State<_ApiKeyTile> {
                 Text(
                   visible ? (_plain ?? 'sk-***') : 'sk-***',
                   style: const TextStyle(
-                      fontSize: 13, color: AppColors.textMain, fontFamily: 'monospace'),
+                      fontSize: 13, color: AppColors.textMain),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),

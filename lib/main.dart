@@ -13,25 +13,33 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final appState = AppState();
   await appState.init();
+  // 预加载系统字体（Windows 读注册表 / Android 加载系统字体文件）
+  final systemFont = await getSystemFont();
 
-  runApp(EasyPasswordApp(appState: appState));
+  runApp(EasyPasswordApp(appState: appState, systemFont: systemFont));
 }
 
 class EasyPasswordApp extends StatelessWidget {
   final AppState appState;
-  const EasyPasswordApp({super.key, required this.appState});
+  final String? systemFont;
+  const EasyPasswordApp({
+    super.key,
+    required this.appState,
+    required this.systemFont,
+  });
 
   @override
   Widget build(BuildContext context) {
     return ChangeNotifierProvider.value(
       value: appState,
-      child: const _Root(),
+      child: _Root(systemFont: systemFont),
     );
   }
 }
 
 class _Root extends StatelessWidget {
-  const _Root();
+  final String? systemFont;
+  const _Root({required this.systemFont});
 
   @override
   Widget build(BuildContext context) {
@@ -39,7 +47,10 @@ class _Root extends StatelessWidget {
     return MaterialApp(
       title: 'EasyPassword',
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.build(fontScale: state.fontScale),
+      theme: AppTheme.build(
+        fontScale: state.fontScale,
+        systemFont: systemFont,
+      ),
       home: state.locked ? const LockPage() : const HomePage(),
     );
   }
