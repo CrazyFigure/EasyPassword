@@ -40,10 +40,17 @@ jobs:
         # 仅构建 arm64-v8a 单 ABI 包，显著减小体积（与 build.gradle.kts 的 abiFilters 双保险）
         run: flutter build apk --release --target-platform android-arm64
 
+      - name: Rename APK
+        # 将 APK 命名为 EasyPassword-{版本号}.apk，与 Windows 安装包命名对齐
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          cp build/app/outputs/flutter-apk/app-release.apk "EasyPassword-${VERSION}.apk"
+          echo "APK renamed to EasyPassword-${VERSION}.apk"
+
       - name: Upload APK to Release
         uses: softprops/action-gh-release@v2
         with:
-          files: build/app/outputs/flutter-apk/app-release.apk
+          files: EasyPassword-*.apk
           fail_on_unmatched_files: false
 
   # ============ Windows EXE ============
