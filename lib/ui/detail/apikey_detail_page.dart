@@ -11,9 +11,10 @@ import '../../models/account.dart';
 import '../../models/api_key.dart';
 import '../../models/password_item.dart';
 import '../../state/app_state.dart';
-import '../account_edit_sheet.dart';
-import '../apikey_edit_sheet.dart';
 import '../center_dialog.dart';
+import '../common/copy_util.dart';
+import '../common/drag_handle.dart';
+import '../common/inline_edit_form.dart';
 import '../item_edit_sheet.dart';
 
 class ApiKeyDetailPage extends StatefulWidget {
@@ -29,6 +30,7 @@ class _ApiKeyDetailPageState extends State<ApiKeyDetailPage> {
   List<Account> _users = [];
   bool _loading = true;
   bool _reveal = false; // 本页"显示全部"开关
+  bool _adding = false; // 是否正在就地新增用户
 
   @override
   void initState() {
@@ -49,8 +51,7 @@ class _ApiKeyDetailPageState extends State<ApiKeyDetailPage> {
 
   @override
   Widget build(BuildContext context) {
-    final state = context.watch<AppState>();
-    final showAll = state.revealAll || _reveal;
+    final showAll = _reveal;
 
     return Scaffold(
       appBar: AppBar(
@@ -80,6 +81,7 @@ class _ApiKeyDetailPageState extends State<ApiKeyDetailPage> {
                 _NoteCard(
                   label: '网站级备注',
                   text: _item.siteNote.isEmpty ? '暂无备注' : _item.siteNote,
+                  copyText: _item.siteNote,
                 ),
                 const SizedBox(height: 12),
                 Row(
@@ -108,26 +110,56 @@ class _ApiKeyDetailPageState extends State<ApiKeyDetailPage> {
                 ),
                 const SizedBox(height: 8),
                 // 用户卡片（可拖动排序，需求 2.4）
+                // 关闭默认把手，改用卡片内显式监听拖动
                 ReorderableListView.builder(
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
-                  buildDefaultDragHandles: true,
+                  buildDefaultDragHandles: false,
+                  proxyDecorator: roundedDragProxy,
                   itemCount: _users.length,
                   onReorderItem: _onUserReorder,
                   itemBuilder: (context, index) => _UserCard(
                     key: ValueKey(_users[index].id),
+                    index: index,
                     account: _users[index],
                     showAll: showAll,
                     onChanged: _load,
                   ),
                 ),
+                // 新增用户：就地展开编辑卡片
+                if (_adding)
+                  InlineEditForm(
+                    title: '添加用户',
+                    requiredKeys: const {'username'},
+                    fields: const [
+                      InlineField(
+                        key: 'username',
+                        label: '用户名',
+                        hint: '例如：user@example.com',
+                      ),
+                      InlineField(
+                        key: 'password',
+                        label: '平台密码',
+                        hint: '请输入密码',
+                        obscure: true,
+                      ),
+                      InlineField(
+                        key: 'note',
+                        label: '用户级备注',
+                        maxLines: 2,
+                      ),
+                    ],
+                    onCancel: () => setState(() => _adding = false),
+                    onSave: _saveNewUser,
+                  ),
                 const SizedBox(height: 12),
                 // 添加用户
-                OutlinedButton.icon(
-                  icon: const Icon(Icons.person_add_alt, size: 18),
-                  label: const Text('添加用户'),
-                  onPressed: _addUser,
-                ),
+                if (!_adding)
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.person_add_alt, size: 18),
+                    label: const Text('添加用户'),
+                    onPressed: () => setState(() => _adding = true),
+                  ),
                 const SizedBox(height: 12),
                 // 浏览器跳转（需求 2.5：二次确认）
                 if (_item.url.isNotEmpty)
@@ -138,7 +170,7 @@ class _ApiKeyDetailPageState extends State<ApiKeyDetailPage> {
                       side: const BorderSide(color: AppColors.primary),
                     ),
                     icon: const Icon(Icons.open_in_browser, size: 18),
-                    label: const Text('在浏览器中打开（需二次确认）'),
+                    label: const Text('在浏览器中打开'),
                     onPressed: _openBrowser,
                   ),
               ],
@@ -201,22 +233,19 @@ class _ApiKeyDetailPageState extends State<ApiKeyDetailPage> {
     }
   }
 
-  Future<void> _addUser() async {
-    final result = await showCenterDialog<Map<String, dynamic>>(
-      context: context,
-      builder: (_) => const AccountEditSheet(),
+  /// 就地新增用户保存
+  Future<void> _saveNewUser(Map<String, String> values) async {
+    final state = context.read<AppState>();
+    await state.data.addAccount(
+      _item.id,
+      values['username'] ?? '',
+      values['password'] ?? '',
+      note: values['note'] ?? '',
     );
-    if (result != null && mounted) {
-      final state = context.read<AppState>();
-      await state.data.addAccount(
-        _item.id,
-        result['username'] as String? ?? '',
-        result['password'] as String? ?? '',
-        note: result['note'] as String? ?? '',
-      );
-      await _load();
-      await state.refresh();
-    }
+    if (!mounted) return;
+    setState(() => _adding = false);
+    await _load();
+    await state.refresh();
   }
 
   Future<void> _openBrowser() async {
@@ -244,14 +273,16 @@ class _ApiKeyDetailPageState extends State<ApiKeyDetailPage> {
   }
 }
 
-/// 用户卡片：用户名 + 平台密码 + 多套 API Key（可拖动排序）
+/// 用户卡片：用户名 + 平台密码 + 多套 API Key（可拖动排序 + 就地编辑）
 class _UserCard extends StatefulWidget {
+  final int index; // 列表下标，供拖动把手使用
   final Account account;
   final bool showAll;
   final VoidCallback onChanged;
 
   const _UserCard({
     super.key,
+    required this.index,
     required this.account,
     required this.showAll,
     required this.onChanged,
@@ -266,11 +297,40 @@ class _UserCardState extends State<_UserCard> {
   bool _loaded = false;
   bool _pwdRevealed = false;
   String? _plainPwd;
+  bool _editing = false; // 用户信息就地编辑态
+  bool _addingKey = false; // 是否正在就地新增 API Key
+
+  @override
+  void initState() {
+    super.initState();
+    // 进入时若父级已开启"显示全部"，平台密码同步为可见
+    _pwdRevealed = widget.showAll;
+  }
+
+  @override
+  void didUpdateWidget(covariant _UserCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 父级"显示全部"变化时，平台密码整体跟随（之后单条按钮仍可独立切换）
+    if (widget.showAll != oldWidget.showAll) {
+      _pwdRevealed = widget.showAll;
+      if (_pwdRevealed) _ensurePlainPwd();
+    }
+  }
+
+  /// 按需解密平台密码，解密完成后刷新
+  Future<void> _ensurePlainPwd() async {
+    if (_plainPwd != null) return;
+    final state = context.read<AppState>();
+    final plain = await state.data.plainPassword(widget.account);
+    if (mounted) setState(() => _plainPwd = plain);
+  }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (!_loaded) _loadKeys();
+    // context 可用后再解密（initState 中不能安全 read<AppState>）
+    if (_pwdRevealed) _ensurePlainPwd();
   }
 
   Future<void> _loadKeys() async {
@@ -286,6 +346,40 @@ class _UserCardState extends State<_UserCard> {
   @override
   Widget build(BuildContext context) {
     final showAll = widget.showAll;
+    // 就地编辑用户信息
+    if (_editing) {
+      return InlineEditForm(
+        title: '编辑用户',
+        requiredKeys: const {'username'},
+        fields: [
+          InlineField(
+            key: 'username',
+            label: '用户名',
+            initial: widget.account.username,
+          ),
+          InlineField(
+            key: 'password',
+            label: '平台密码',
+            obscure: true,
+            // 编辑时带出原密码（按需解密），可用小眼睛查看
+            resolveInitial: () async {
+              final state = context.read<AppState>();
+              return _plainPwd ??
+                  await state.data.plainPassword(widget.account);
+            },
+          ),
+          InlineField(
+            key: 'note',
+            label: '用户级备注',
+            initial: widget.account.note,
+            maxLines: 2,
+          ),
+        ],
+        onCancel: () => setState(() => _editing = false),
+        onSave: _saveUserEdit,
+      );
+    }
+
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(14),
@@ -297,6 +391,14 @@ class _UserCardState extends State<_UserCard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // 顶部居中的拖动把手
+          Center(
+            child: DragHandle(
+              index: widget.index,
+              icon: Icons.drag_handle,
+              size: 22,
+            ),
+          ),
           // 用户行头
           Row(children: [
             const Icon(Icons.person_outline, size: 18, color: AppColors.primary),
@@ -308,19 +410,27 @@ class _UserCardState extends State<_UserCard> {
                       fontWeight: FontWeight.w600,
                       color: AppColors.textMain)),
             ),
+            CopyIconButton(
+              label: '用户名',
+              size: 16,
+              onResolve: () async => widget.account.username,
+            ),
             IconButton(
               icon: const Icon(Icons.edit_outlined,
                   size: 18, color: AppColors.textWeak),
-              onPressed: _editUser,
+              tooltip: '编辑',
+              visualDensity: VisualDensity.compact,
+              onPressed: () => setState(() => _editing = true),
             ),
             IconButton(
               icon: const Icon(Icons.delete_outline,
                   size: 18, color: AppColors.danger),
+              tooltip: '删除',
+              visualDensity: VisualDensity.compact,
               onPressed: _deleteUser,
             ),
-            const Icon(Icons.drag_handle, size: 20, color: AppColors.textFaint),
           ]),
-          // 平台密码
+          // 平台密码（遮挡 / 显示 / 复制）
           Row(children: [
             const Text('平台密码',
                 style: TextStyle(fontSize: 12, color: AppColors.textWeak)),
@@ -332,49 +442,99 @@ class _UserCardState extends State<_UserCard> {
                     fontSize: 13, color: AppColors.textMain),
               ),
             ),
+            CopyIconButton(
+              label: '平台密码',
+              size: 16,
+              onResolve: () async {
+                final state = context.read<AppState>();
+                return _plainPwd ??
+                    await state.data.plainPassword(widget.account);
+              },
+            ),
             IconButton(
               icon: Icon(
                 _pwdRevealed ? Icons.visibility : Icons.visibility_off,
                 size: 16,
                 color: AppColors.textWeak,
               ),
+              tooltip: _pwdRevealed ? '隐藏' : '显示',
+              visualDensity: VisualDensity.compact,
               onPressed: _togglePwd,
             ),
           ]),
+          // 用户级备注（可复制）
+          if (widget.account.note.isNotEmpty)
+            Row(children: [
+              Expanded(
+                child: Text('备注：${widget.account.note}',
+                    style: const TextStyle(
+                        fontSize: 12, color: AppColors.textWeak)),
+              ),
+              CopyIconButton(
+                label: '备注',
+                size: 16,
+                onResolve: () async => widget.account.note,
+              ),
+            ]),
           const SizedBox(height: 4),
           // API Key 列表（可拖动排序，需求 2.4）
           if (_keys.isNotEmpty) ...[
             ReorderableListView.builder(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
-              buildDefaultDragHandles: true,
+              buildDefaultDragHandles: false,
+              proxyDecorator: roundedDragProxy,
               itemCount: _keys.length,
               onReorderItem: _onKeyReorder,
               itemBuilder: (context, index) => _ApiKeyTile(
                 key: ValueKey(_keys[index].id),
+                index: index,
                 apiKey: _keys[index],
                 showAll: showAll,
                 onChanged: _loadKeys,
               ),
             ),
           ],
-          // 添加 API Key（需求 2.3）
-          const SizedBox(height: 6),
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton.icon(
-              style: OutlinedButton.styleFrom(
-                minimumSize: const Size(0, 36),
-                padding: const EdgeInsets.symmetric(horizontal: 10),
-                visualDensity: VisualDensity.compact,
-                backgroundColor: AppColors.primaryLightBg,
-                side: BorderSide.none,
-              ),
-              icon: const Icon(Icons.add, size: 16),
-              label: const Text('添加 API Key', style: TextStyle(fontSize: 13)),
-              onPressed: _addKey,
+          // 新增 API Key：就地展开编辑
+          if (_addingKey)
+            InlineEditForm(
+              title: '添加 API Key',
+              requiredKeys: const {'key'},
+              fields: const [
+                InlineField(
+                  key: 'key',
+                  label: 'API Key',
+                  hint: 'sk-...',
+                ),
+                InlineField(
+                  key: 'note',
+                  label: 'API Key 级备注',
+                  maxLines: 2,
+                ),
+              ],
+              onCancel: () => setState(() => _addingKey = false),
+              onSave: _saveNewKey,
             ),
-          ),
+          // 添加 API Key（需求 2.3）
+          if (!_addingKey) ...[
+            const SizedBox(height: 6),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(0, 36),
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  visualDensity: VisualDensity.compact,
+                  backgroundColor: AppColors.background,
+                  foregroundColor: AppColors.textSecondary,
+                  side: const BorderSide(color: AppColors.border),
+                ),
+                icon: const Icon(Icons.add, size: 16),
+                label: const Text('添加 API Key', style: TextStyle(fontSize: 13)),
+                onPressed: () => setState(() => _addingKey = true),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -391,46 +551,42 @@ class _UserCardState extends State<_UserCard> {
   }
 
   Future<void> _togglePwd() async {
-    if (!_pwdRevealed && _plainPwd == null) {
-      final state = context.read<AppState>();
-      _plainPwd = await state.data.plainPassword(widget.account);
-    }
+    if (!_pwdRevealed) await _ensurePlainPwd();
     if (mounted) setState(() => _pwdRevealed = !_pwdRevealed);
   }
 
-  Future<void> _addKey() async {
-    final result = await showCenterDialog<Map<String, dynamic>>(
-      context: context,
-      builder: (_) => const ApiKeyEditSheet(),
+  /// 就地新增 API Key 保存
+  Future<void> _saveNewKey(Map<String, String> values) async {
+    final state = context.read<AppState>();
+    await state.data.addApiKey(
+      widget.account.id,
+      values['key'] ?? '',
+      note: values['note'] ?? '',
     );
-    if (result != null && mounted) {
-      final state = context.read<AppState>();
-      await state.data.addApiKey(
-        widget.account.id,
-        result['key'] as String? ?? '',
-        note: result['note'] as String? ?? '',
-      );
-      await _loadKeys();
-      await state.refresh();
-    }
+    if (!mounted) return;
+    setState(() => _addingKey = false);
+    await _loadKeys();
+    await state.refresh();
   }
 
-  Future<void> _editUser() async {
-    final result = await showCenterDialog<Map<String, dynamic>>(
-      context: context,
-      builder: (_) => AccountEditSheet(account: widget.account),
+  /// 就地编辑用户信息保存
+  Future<void> _saveUserEdit(Map<String, String> values) async {
+    final state = context.read<AppState>();
+    final newPwd = values['password'] ?? '';
+    await state.data.updateAccount(
+      widget.account.copyWith(
+        username: values['username'] ?? widget.account.username,
+        note: values['note'] ?? widget.account.note,
+      ),
+      // 已带出原值，清空视为不改动（避免误设为空密码）
+      newPassword: newPwd.isEmpty ? null : newPwd,
     );
-    if (result != null && mounted) {
-      final state = context.read<AppState>();
-      await state.data.updateAccount(
-        widget.account.copyWith(
-          username: result['username'] as String? ?? widget.account.username,
-          note: result['note'] as String? ?? widget.account.note,
-        ),
-        newPassword: result['password'] as String?,
-      );
-      widget.onChanged();
-    }
+    if (!mounted) return;
+    setState(() => _editing = false);
+    // 密码可能已变更，清除明文缓存；仍在显示状态则重新解密
+    _plainPwd = null;
+    if (_pwdRevealed) await _ensurePlainPwd();
+    widget.onChanged();
   }
 
   Future<void> _deleteUser() async {
@@ -459,14 +615,16 @@ class _UserCardState extends State<_UserCard> {
   }
 }
 
-/// API Key 单条展示：key 遮挡/显示 + key 级备注
+/// API Key 单条展示：key 遮挡/显示 + key 级备注 + 就地编辑
 class _ApiKeyTile extends StatefulWidget {
+  final int index; // 列表下标，供拖动把手使用
   final ApiKey apiKey;
   final bool showAll;
   final VoidCallback onChanged;
 
   const _ApiKeyTile({
     super.key,
+    required this.index,
     required this.apiKey,
     required this.showAll,
     required this.onChanged,
@@ -479,16 +637,78 @@ class _ApiKeyTile extends StatefulWidget {
 class _ApiKeyTileState extends State<_ApiKeyTile> {
   bool _revealed = false;
   String? _plain;
+  bool _editing = false; // 就地编辑态
+
+  @override
+  void initState() {
+    super.initState();
+    // 进入时若父级已开启"显示全部"，同步为可见
+    _revealed = widget.showAll;
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // context 可用后再解密（initState 中不能安全 read<AppState>）
+    if (_revealed) _ensurePlain();
+  }
+
+  @override
+  void didUpdateWidget(covariant _ApiKeyTile oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 父级"显示全部"变化时整体跟随（之后单条按钮仍可独立切换）
+    if (widget.showAll != oldWidget.showAll) {
+      _revealed = widget.showAll;
+      if (_revealed) _ensurePlain();
+    }
+  }
+
+  /// 按需解密明文 key，解密完成后刷新
+  Future<void> _ensurePlain() async {
+    if (_plain != null) return;
+    final state = context.read<AppState>();
+    final plain = await state.data.plainKey(widget.apiKey);
+    if (mounted) setState(() => _plain = plain);
+  }
 
   @override
   Widget build(BuildContext context) {
-    final visible = widget.showAll || _revealed;
+    final visible = _revealed;
+    // 就地编辑态：整行替换为编辑表单
+    if (_editing) {
+      return InlineEditForm(
+        title: '编辑 API Key',
+        fields: [
+          InlineField(
+            key: 'key',
+            label: 'API Key',
+            obscure: true,
+            // 编辑时带出原 key（按需解密），可用小眼睛查看
+            resolveInitial: () async {
+              final state = context.read<AppState>();
+              return _plain ?? await state.data.plainKey(widget.apiKey);
+            },
+          ),
+          InlineField(
+            key: 'note',
+            label: 'API Key 级备注',
+            initial: widget.apiKey.note,
+            maxLines: 2,
+          ),
+        ],
+        onCancel: () => setState(() => _editing = false),
+        onSave: _saveEdit,
+      );
+    }
+
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: AppColors.primaryLightBg,
+        // 中性浅底 + 描边，替代原来的粉色底
+        color: AppColors.background,
         borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.border),
       ),
       child: Row(
         children: [
@@ -512,54 +732,68 @@ class _ApiKeyTileState extends State<_ApiKeyTile> {
               ],
             ),
           ),
+          // 复制无需先显示：按需解密后直接进剪贴板
+          CopyIconButton(
+            label: 'API Key',
+            size: 16,
+            onResolve: () async {
+              final state = context.read<AppState>();
+              return _plain ?? await state.data.plainKey(widget.apiKey);
+            },
+          ),
           IconButton(
             icon: Icon(
               visible ? Icons.visibility : Icons.visibility_off,
               size: 16,
               color: AppColors.textWeak,
             ),
+            tooltip: visible ? '隐藏' : '显示',
+            visualDensity: VisualDensity.compact,
             onPressed: _toggle,
           ),
           IconButton(
             icon: const Icon(Icons.edit_outlined,
                 size: 16, color: AppColors.textWeak),
-            onPressed: _edit,
+            tooltip: '编辑',
+            visualDensity: VisualDensity.compact,
+            onPressed: () => setState(() => _editing = true),
           ),
           IconButton(
             icon: const Icon(Icons.delete_outline,
                 size: 16, color: AppColors.danger),
+            tooltip: '删除',
+            visualDensity: VisualDensity.compact,
             onPressed: _delete,
           ),
-          const Icon(Icons.drag_handle, size: 18, color: AppColors.textFaint),
+          // 唯一把手：父级已关闭默认把手
+          DragHandle(index: widget.index, size: 18),
         ],
       ),
     );
   }
 
   Future<void> _toggle() async {
-    final visibleNow = _revealed || widget.showAll;
-    if (!visibleNow && _plain == null) {
-      final state = context.read<AppState>();
-      _plain = await state.data.plainKey(widget.apiKey);
-    }
+    if (!_revealed) await _ensurePlain();
     if (mounted) setState(() => _revealed = !_revealed);
   }
 
-  Future<void> _edit() async {
-    final result = await showCenterDialog<Map<String, dynamic>>(
-      context: context,
-      builder: (_) => ApiKeyEditSheet(apiKey: widget.apiKey),
+  /// 就地编辑保存
+  Future<void> _saveEdit(Map<String, String> values) async {
+    final state = context.read<AppState>();
+    final newKey = values['key'] ?? '';
+    await state.data.updateApiKey(
+      widget.apiKey.copyWith(
+        note: values['note'] ?? widget.apiKey.note,
+      ),
+      // 留空表示不修改 key
+      newKey: newKey.isEmpty ? null : newKey,
     );
-    if (result != null && mounted) {
-      final state = context.read<AppState>();
-      await state.data.updateApiKey(
-        widget.apiKey.copyWith(
-          note: result['note'] as String? ?? widget.apiKey.note,
-        ),
-        newKey: result['key'] as String?,
-      );
-      widget.onChanged();
-    }
+    if (!mounted) return;
+    setState(() => _editing = false);
+    // key 可能已变更，清除明文缓存；仍在显示状态则重新解密
+    _plain = null;
+    if (_revealed) await _ensurePlain();
+    widget.onChanged();
   }
 
   Future<void> _delete() async {
@@ -627,6 +861,12 @@ class _SiteHeader extends StatelessWidget {
             ],
           ),
         ),
+        // 网址可复制
+        if (item.url.isNotEmpty)
+          CopyIconButton(
+            label: '网址',
+            onResolve: () async => item.url,
+          ),
       ],
     );
   }
@@ -635,7 +875,8 @@ class _SiteHeader extends StatelessWidget {
 class _NoteCard extends StatelessWidget {
   final String label;
   final String text;
-  const _NoteCard({required this.label, required this.text});
+  final String? copyText; // 非空时展示复制按钮
+  const _NoteCard({required this.label, required this.text, this.copyText});
 
   @override
   Widget build(BuildContext context) {
@@ -645,18 +886,31 @@ class _NoteCard extends StatelessWidget {
         color: AppColors.background,
         borderRadius: BorderRadius.circular(12),
       ),
-      child: Column(
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label,
-              style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                  color: AppColors.textWeak)),
-          const SizedBox(height: 4),
-          Text(text,
-              style: const TextStyle(
-                  fontSize: 13, color: AppColors.textMain)),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label,
+                    style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: AppColors.textWeak)),
+                const SizedBox(height: 4),
+                Text(text,
+                    style: const TextStyle(
+                        fontSize: 13, color: AppColors.textMain)),
+              ],
+            ),
+          ),
+          if (copyText != null && copyText!.isNotEmpty)
+            CopyIconButton(
+              label: '备注',
+              size: 16,
+              onResolve: () async => copyText!,
+            ),
         ],
       ),
     );
