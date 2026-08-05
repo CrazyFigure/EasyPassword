@@ -24,8 +24,14 @@ class WebDavService {
   /// 导出当前全部数据为 JSON（敏感字段仍为密文）
   Future<Map<String, dynamic>> exportAll() async {
     final items = <Map<String, dynamic>>[];
+    final folders = <Map<String, dynamic>>[];
     for (final type in const ['password', 'apikey']) {
-      final list = await data.listItems(type);
+      // 文件夹与条目分开导出，条目通过 folder_id 关联所属文件夹
+      for (final f in await data.listFolders(type)) {
+        folders.add(f.toMap());
+      }
+      // 导出跨文件夹：含文件夹内条目，folder_id 随条目一起进快照
+      final list = await data.listItems(type, allFolders: true);
       for (final item in list) {
         final accounts = await data.listAccounts(item.id);
         final accList = <Map<String, dynamic>>[];
@@ -48,7 +54,8 @@ class WebDavService {
     return {
       'revision': revision,
       'app': 'EasyPassword',
-      'version': 1,
+      'version': 2,
+      'folders': folders,
       'items': items,
     };
   }
@@ -66,14 +73,26 @@ class WebDavService {
     final jsonStr = await crypto.decrypt(encryptedSnapshot);
     final remote = jsonDecode(jsonStr) as Map<String, dynamic>;
     final remoteItems = (remote['items'] as List?) ?? [];
+    // v1 快照没有 folders 字段，缺省为空即可向后兼容
+    final remoteFolders = (remote['folders'] as List?) ?? [];
 
     var merged = 0;
     final db = await DatabaseService.db;
     await db.transaction((txn) async {
+      // 先合并文件夹，保证随后写入的条目 folder_id 有对应文件夹
+      for (final raw in remoteFolders) {
+        final folder = Map<String, dynamic>.from(raw as Map);
+        final local = await _queryLocalRow(txn, 'folders', folder['id'] as String);
+        if (local == null ||
+            (folder['updated_at'] as int) > (local['updated_at'] as int)) {
+          await txn.insert('folders', folder,
+              conflictAlgorithm: ConflictAlgorithm.replace);
+        }
+      }
       for (final raw in remoteItems) {
         final item = Map<String, dynamic>.from(raw as Map);
         final itemId = item['id'] as String;
-        final local = await _queryLocalItem(txn, itemId);
+        final local = await _queryLocalRow(txn, 'password_items', itemId);
 
         // 条目级合并
         if (local == null || (item['updated_at'] as int) > (local['updated_at'] as int)) {
@@ -110,10 +129,11 @@ class WebDavService {
     return merged;
   }
 
-  Future<Map<String, dynamic>?> _queryLocalItem(
-      DatabaseExecutor txn, String id) async {
-    final rows = await txn.query('password_items',
-        where: 'id = ?', whereArgs: [id], limit: 1);
+  /// 按主键取单行（条目 / 文件夹共用，用于比较 updated_at 决定谁胜出）
+  Future<Map<String, dynamic>?> _queryLocalRow(
+      DatabaseExecutor txn, String table, String id) async {
+    final rows =
+        await txn.query(table, where: 'id = ?', whereArgs: [id], limit: 1);
     if (rows.isEmpty) return null;
     return rows.first;
   }

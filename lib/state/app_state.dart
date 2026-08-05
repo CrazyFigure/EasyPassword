@@ -3,6 +3,9 @@ library;
 
 import 'package:flutter/foundation.dart';
 
+import '../core/constants.dart';
+import '../models/folder.dart';
+import '../models/list_entry.dart';
 import '../models/password_item.dart';
 import '../services/app_lock_service.dart';
 import '../services/crypto_service.dart';
@@ -29,6 +32,11 @@ class AppState extends ChangeNotifier {
   String currentTab = 'password';
   List<PasswordItem> passwordItems = [];
   List<PasswordItem> apikeyItems = [];
+  // 文件夹列表（各分区根目录下）
+  List<Folder> passwordFolders = [];
+  List<Folder> apikeyFolders = [];
+  // 文件夹内条目数：folderId -> 条目数
+  Map<String, int> folderCounts = {};
   bool revealAll = false;
   bool syncing = false;
   String? syncMessage;
@@ -95,16 +103,54 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 重新加载列表
+  /// 重新加载根目录列表与文件夹（文件夹内条目由文件夹页自行加载）
   Future<void> refresh() async {
-    if (sortMode == 'custom') {
-      passwordItems = await data.listItems('password');
-      apikeyItems = await data.listItems('apikey');
-    } else {
+    final byName = sortMode != 'custom';
+    if (byName) {
       passwordItems = await data.listItemsByName('password');
       apikeyItems = await data.listItemsByName('apikey');
+      passwordFolders = await data.listFoldersByName('password');
+      apikeyFolders = await data.listFoldersByName('apikey');
+    } else {
+      passwordItems = await data.listItems('password');
+      apikeyItems = await data.listItems('apikey');
+      passwordFolders = await data.listFolders('password');
+      apikeyFolders = await data.listFolders('apikey');
     }
+    folderCounts = {
+      ...await data.countItemsByFolder('password'),
+      ...await data.countItemsByFolder('apikey'),
+    };
     notifyListeners();
+  }
+
+  /// 某分区根列表的最终显示顺序（文件夹 + 条目混合）。
+  ///
+  /// - 按名称排序：文件夹整体排在条目之前，两组各自按名称升序；
+  /// - 自定义排序：两者共用一套 sort_order，可任意交叉排列。
+  List<ListEntry> rootEntries(String type) {
+    final isApi = type == ItemType.apikey;
+    final folders = isApi ? apikeyFolders : passwordFolders;
+    final items = isApi ? apikeyItems : passwordItems;
+    if (sortMode == 'custom') {
+      final entries = <ListEntry>[
+        for (final f in folders) ListEntry.ofFolder(f),
+        for (final i in items) ListEntry.ofItem(i),
+      ];
+      // 序号相同时（如历史数据重号）让文件夹稳定靠前，避免顺序抖动
+      entries.sort((a, b) {
+        final c = a.sortOrder.compareTo(b.sortOrder);
+        if (c != 0) return c;
+        if (a.isFolder != b.isFolder) return a.isFolder ? -1 : 1;
+        return 0;
+      });
+      return entries;
+    }
+    // 名称排序：文件夹恒在前，各组内部已由 SQL 按名称排好
+    return [
+      for (final f in folders) ListEntry.ofFolder(f),
+      for (final i in items) ListEntry.ofItem(i),
+    ];
   }
 
   /// 设置当前 tab

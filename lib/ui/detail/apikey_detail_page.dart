@@ -148,7 +148,6 @@ class _ApiKeyDetailPageState extends State<ApiKeyDetailPage> {
                       InlineField(
                         key: 'note',
                         label: '用户级备注',
-                        maxLines: 2,
                       ),
                     ],
                     onCancel: () => setState(() => _adding = false),
@@ -354,7 +353,6 @@ class _UserCardState extends State<_UserCard> {
             key: 'note',
             label: '用户级备注',
             initial: widget.account.note,
-            maxLines: 2,
           ),
         ],
         onCancel: () => setState(() => _editing = false),
@@ -492,7 +490,6 @@ class _UserCardState extends State<_UserCard> {
                 InlineField(
                   key: 'note',
                   label: 'API Key 级备注',
-                  maxLines: 2,
                 ),
               ],
               onCancel: () => setState(() => _addingKey = false),
@@ -666,7 +663,6 @@ class _ApiKeyTileState extends State<_ApiKeyTile> {
             key: 'note',
             label: 'API Key 级备注',
             initial: widget.apiKey.note,
-            maxLines: 2,
           ),
         ],
         onCancel: () => setState(() => _editing = false),
@@ -840,6 +836,9 @@ class _SiteHeader extends StatelessWidget {
   }
 }
 
+/// 备注卡片（可选复制）
+/// 布局说明：标签与内容同处一行（不再上下堆叠），保证备注行与
+/// 用户名/密码等普通行等高。
 class _NoteCard extends StatelessWidget {
   final String label;
   final String text;
@@ -849,29 +848,25 @@ class _NoteCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
       decoration: BoxDecoration(
         color: AppColors.background,
         borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Text(label,
+              style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                  color: AppColors.textWeak)),
+          const SizedBox(width: 12),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(label,
-                    style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                        color: AppColors.textWeak)),
-                const SizedBox(height: 4),
-                Text(text,
-                    style: const TextStyle(
-                        fontSize: 13, color: AppColors.textMain)),
-              ],
-            ),
+            child: Text(text,
+                style: const TextStyle(
+                    fontSize: 13, color: AppColors.textMain),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis),
           ),
           if (copyText != null && copyText!.isNotEmpty)
             CopyIconButton(

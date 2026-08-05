@@ -9,6 +9,7 @@ import 'package:provider/provider.dart';
 import '../../core/constants.dart';
 import '../../services/settings_service.dart';
 import '../../state/app_state.dart';
+import '../common/app_menu.dart';
 import '../common/drag_handle.dart';
 
 class TabCustomizeSheet extends StatefulWidget {
@@ -148,16 +149,12 @@ class _TabCustomizeSheetState extends State<TabCustomizeSheet> {
                           fontWeight: FontWeight.w600,
                           color: AppColors.textMain)),
                   const Spacer(),
-                  DropdownButton<String>(
+                  // 自定义下拉：Material 默认 DropdownButton 是直角白底大行高，
+                  // 与本应用圆角卡片风格不搭，改用统一的 showAppMenu
+                  _DefaultTabPicker(
+                    tabs: _tabs,
                     value: _defaultId,
-                    underline: const SizedBox.shrink(),
-                    items: [
-                      for (final t in _tabs)
-                        DropdownMenuItem(value: t.id, child: Text(t.label)),
-                    ],
-                    onChanged: (v) {
-                      if (v != null) setState(() => _defaultId = v);
-                    },
+                    onChanged: (v) => setState(() => _defaultId = v),
                   ),
                 ],
               ),
@@ -183,5 +180,67 @@ class _TabCustomizeSheetState extends State<TabCustomizeSheet> {
 
   void _toggleOn(NavTab tab) {
     setState(() => _tabs.add(tab));
+  }
+}
+
+/// 「启动时默认打开」选择器：外观为一枚浅色胶囊按钮，
+/// 点击在其下方弹出统一样式的下拉菜单。
+class _DefaultTabPicker extends StatelessWidget {
+  final List<NavTab> tabs;
+  final String value;
+  final ValueChanged<String> onChanged;
+
+  const _DefaultTabPicker({
+    required this.tabs,
+    required this.value,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final current = tabs.firstWhere(
+      (t) => t.id == value,
+      orElse: () => tabs.isNotEmpty ? tabs.first : NavTab(value, value),
+    );
+    return Builder(
+      builder: (btnContext) => InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: tabs.isEmpty
+            ? null
+            : () async {
+                final choice = await showAppMenu<String>(
+                  anchorContext: btnContext,
+                  selected: value,
+                  width: 170,
+                  items: [
+                    for (final t in tabs)
+                      AppMenuItem(value: t.id, label: t.label),
+                  ],
+                );
+                if (choice != null) onChanged(choice);
+              },
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: AppColors.background,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: AppColors.border),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(current.label,
+                  style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                      color: AppColors.textMain)),
+              const SizedBox(width: 6),
+              const Icon(Icons.keyboard_arrow_down,
+                  size: 18, color: AppColors.textWeak),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
