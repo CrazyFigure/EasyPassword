@@ -12,9 +12,11 @@ import '../../models/api_key.dart';
 import '../../models/password_item.dart';
 import '../../state/app_state.dart';
 import '../center_dialog.dart';
+import '../common/confirm_dialog.dart';
 import '../common/copy_util.dart';
 import '../common/drag_handle.dart';
 import '../common/inline_edit_form.dart';
+import '../common/site_color.dart';
 import '../item_edit_sheet.dart';
 
 class ApiKeyDetailPage extends StatefulWidget {
@@ -208,22 +210,12 @@ class _ApiKeyDetailPageState extends State<ApiKeyDetailPage> {
   }
 
   Future<void> _deleteItem() async {
-    final ok = await showDialog<bool>(
+    final ok = await showConfirmDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('删除条目'),
-        content: Text('确定删除 ${_item.name} 及其全部用户与 API Key 吗？'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('取消')),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('删除'),
-          ),
-        ],
-      ),
+      title: '删除条目',
+      content: '确定删除 ${_item.name} 及其全部用户与 API Key 吗？',
+      confirmText: '删除',
+      isDangerous: true,
     );
     if (ok == true && mounted) {
       final state = context.read<AppState>();
@@ -251,21 +243,11 @@ class _ApiKeyDetailPageState extends State<ApiKeyDetailPage> {
   Future<void> _openBrowser() async {
     final uri = Uri.tryParse(_item.url);
     if (uri == null) return;
-    final ok = await showDialog<bool>(
+    final ok = await showConfirmDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('打开浏览器'),
-        content: Text('即将在浏览器中打开：\n${_item.url}\n\n确认继续吗？'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('取消')),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('打开'),
-          ),
-        ],
-      ),
+      title: '打开浏览器',
+      content: '即将在浏览器中打开：\n${_item.url}\n\n确认继续吗？',
+      confirmText: '打开',
     );
     if (ok == true && mounted) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
@@ -391,7 +373,8 @@ class _UserCardState extends State<_UserCard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 顶部居中的拖动把手
+          // 顶部居中的拖动把手（用户卡片内嵌 API Key 列表，
+          // 若整卡长按拖动会与内层 API Key 的长按拖动冲突，故仍保留把手拖动）
           Center(
             child: DragHandle(
               index: widget.index,
@@ -590,22 +573,12 @@ class _UserCardState extends State<_UserCard> {
   }
 
   Future<void> _deleteUser() async {
-    final ok = await showDialog<bool>(
+    final ok = await showConfirmDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('删除用户'),
-        content: const Text('将同时删除该用户下所有 API Key，确定吗？'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('取消')),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('删除'),
-          ),
-        ],
-      ),
+      title: '删除用户',
+      content: '将同时删除该用户下所有 API Key，确定吗？',
+      confirmText: '删除',
+      isDangerous: true,
     );
     if (ok == true && mounted) {
       final state = context.read<AppState>();
@@ -701,73 +674,77 @@ class _ApiKeyTileState extends State<_ApiKeyTile> {
       );
     }
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        // 中性浅底 + 描边，替代原来的粉色底
-        color: AppColors.background,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.key, size: 16, color: AppColors.primary),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  visible ? (_plain ?? 'sk-***') : 'sk-***',
-                  style: const TextStyle(
-                      fontSize: 13, color: AppColors.textMain),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                if (widget.apiKey.note.isNotEmpty)
-                  Text(widget.apiKey.note,
-                      style: const TextStyle(
-                          fontSize: 11, color: AppColors.textWeak)),
-              ],
+    // 整条可长按拖动排序：把手图标不再是唯一拖动区域
+    return ReorderableDelayedDragStartListener(
+      index: widget.index,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          // 中性浅底 + 描边，替代原来的粉色底
+          color: AppColors.background,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: AppColors.border),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.key, size: 16, color: AppColors.primary),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    visible ? (_plain ?? 'sk-***') : 'sk-***',
+                    style: const TextStyle(
+                        fontSize: 13, color: AppColors.textMain),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  if (widget.apiKey.note.isNotEmpty)
+                    Text(widget.apiKey.note,
+                        style: const TextStyle(
+                            fontSize: 11, color: AppColors.textWeak)),
+                ],
+              ),
             ),
-          ),
-          // 复制无需先显示：按需解密后直接进剪贴板
-          CopyIconButton(
-            label: 'API Key',
-            size: 16,
-            onResolve: () async {
-              final state = context.read<AppState>();
-              return _plain ?? await state.data.plainKey(widget.apiKey);
-            },
-          ),
-          IconButton(
-            icon: Icon(
-              visible ? Icons.visibility : Icons.visibility_off,
+            // 复制无需先显示：按需解密后直接进剪贴板
+            CopyIconButton(
+              label: 'API Key',
               size: 16,
-              color: AppColors.textWeak,
+              onResolve: () async {
+                final state = context.read<AppState>();
+                return _plain ?? await state.data.plainKey(widget.apiKey);
+              },
             ),
-            tooltip: visible ? '隐藏' : '显示',
-            visualDensity: VisualDensity.compact,
-            onPressed: _toggle,
-          ),
-          IconButton(
-            icon: const Icon(Icons.edit_outlined,
-                size: 16, color: AppColors.textWeak),
-            tooltip: '编辑',
-            visualDensity: VisualDensity.compact,
-            onPressed: () => setState(() => _editing = true),
-          ),
-          IconButton(
-            icon: const Icon(Icons.delete_outline,
-                size: 16, color: AppColors.danger),
-            tooltip: '删除',
-            visualDensity: VisualDensity.compact,
-            onPressed: _delete,
-          ),
-          // 唯一把手：父级已关闭默认把手
-          DragHandle(index: widget.index, size: 18),
-        ],
+            IconButton(
+              icon: Icon(
+                visible ? Icons.visibility : Icons.visibility_off,
+                size: 16,
+                color: AppColors.textWeak,
+              ),
+              tooltip: visible ? '隐藏' : '显示',
+              visualDensity: VisualDensity.compact,
+              onPressed: _toggle,
+            ),
+            IconButton(
+              icon: const Icon(Icons.edit_outlined,
+                  size: 16, color: AppColors.textWeak),
+              tooltip: '编辑',
+              visualDensity: VisualDensity.compact,
+              onPressed: () => setState(() => _editing = true),
+            ),
+            IconButton(
+              icon: const Icon(Icons.delete_outline,
+                  size: 16, color: AppColors.danger),
+              tooltip: '删除',
+              visualDensity: VisualDensity.compact,
+              onPressed: _delete,
+            ),
+            // 保留把手图标作为可拖动的视觉提示（整条已可长按拖动）
+            DragHandle(index: widget.index, size: 18),
+          ],
+        ),
       ),
     );
   }
@@ -797,22 +774,12 @@ class _ApiKeyTileState extends State<_ApiKeyTile> {
   }
 
   Future<void> _delete() async {
-    final ok = await showDialog<bool>(
+    final ok = await showConfirmDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('删除 API Key'),
-        content: const Text('确定删除该 API Key 吗？'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('取消')),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('删除'),
-          ),
-        ],
-      ),
+      title: '删除 API Key',
+      content: '确定删除该 API Key 吗？',
+      confirmText: '删除',
+      isDangerous: true,
     );
     if (ok == true && mounted) {
       final state = context.read<AppState>();
@@ -835,11 +802,12 @@ class _SiteHeader extends StatelessWidget {
           height: 56,
           alignment: Alignment.center,
           decoration: BoxDecoration(
-            color: AppColors.primary,
+            // 与主列表缩略图同一取色规则，保证同一条目两处颜色一致
+            color: siteColorFor(item.name),
             borderRadius: BorderRadius.circular(14),
           ),
           child: Text(
-            item.name.isNotEmpty ? item.name[0].toUpperCase() : '?',
+            siteInitialFor(item.name),
             style: const TextStyle(
                 color: Colors.white, fontSize: 24, fontWeight: FontWeight.w700),
           ),

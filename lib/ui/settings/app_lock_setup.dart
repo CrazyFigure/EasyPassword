@@ -79,9 +79,12 @@ class _AppLockSetupPageState extends State<AppLockSetupPage> {
           ),
           actions: [
             TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('取消')),
+              style: TextButton.styleFrom(minimumSize: const Size(88, 44)),
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('取消'),
+            ),
             FilledButton(
+              style: FilledButton.styleFrom(minimumSize: const Size(88, 44)),
               onPressed: () async {
                 final state = context.read<AppState>();
                 final ok = await state.appLock.verify(ctrl.text);
@@ -223,9 +226,12 @@ class _AppLockSetupPageState extends State<AppLockSetupPage> {
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('取消')),
+            style: TextButton.styleFrom(minimumSize: const Size(88, 44)),
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
           FilledButton(
+            style: FilledButton.styleFrom(minimumSize: const Size(88, 44)),
             onPressed: () => Navigator.pop(ctx, ctrl.text),
             child: const Text('验证'),
           ),

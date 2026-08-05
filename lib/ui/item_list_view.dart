@@ -8,7 +8,9 @@ import 'package:provider/provider.dart';
 import '../core/constants.dart';
 import '../models/password_item.dart';
 import '../state/app_state.dart';
+import 'common/confirm_dialog.dart';
 import 'common/drag_handle.dart';
+import 'common/site_color.dart';
 import 'detail/apikey_detail_page.dart';
 import 'detail/password_detail_page.dart';
 import 'sort_dialog.dart';
@@ -145,25 +147,12 @@ class _ItemListViewState extends State<ItemListView> {
 
   Future<void> _confirmBatchDelete() async {
     if (_selected.isEmpty) return;
-    final ok = await showDialog<bool>(
+    final ok = await showConfirmDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('批量删除'),
-        content: Text('确定删除选中的 ${_selected.length} 个条目吗？此操作不可撤销。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: AppColors.danger,
-            ),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('删除'),
-          ),
-        ],
-      ),
+      title: '批量删除',
+      content: '确定删除选中的 ${_selected.length} 个条目吗？此操作不可撤销。',
+      confirmText: '删除',
+      isDangerous: true,
     );
     if (ok == true && mounted) {
       final state = context.read<AppState>();
@@ -222,11 +211,60 @@ class _ItemListViewState extends State<ItemListView> {
   Widget _buildItemCard(
       AppState state, PasswordItem item, bool customSort, int index) {
     final selected = _selected.contains(item.id);
+
+    // 自定义排序模式：整条可长按拖动。
+    // 用 Delayed 版本而非 ReorderableDragStartListener：后者按下即接管手势，
+    // 会吃掉 ListTile 的点击，导致点条目进不了详情页。
+    if (customSort && !_batchMode) {
+      return ReorderableDelayedDragStartListener(
+        // key 必须挂在 itemBuilder 返回的根 widget 上，
+        // 否则 ReorderableListView 会断言「every item must have a key」
+        key: ValueKey(item.id),
+        index: index,
+        child: Card(
+          margin: const EdgeInsets.only(bottom: 10),
+          color: selected ? AppColors.primaryLight : Colors.white,
+          clipBehavior: Clip.antiAlias,
+          child: ListTile(
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => _isApi
+                      ? ApiKeyDetailPage(item: item)
+                      : PasswordDetailPage(item: item),
+                ),
+              );
+            },
+            leading: _SiteAvatar(item: item),
+            title: Text(
+              item.name,
+              style: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textMain),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            subtitle: Text(
+              item.siteNote.isEmpty ? item.url : item.siteNote,
+              style: const TextStyle(
+                  fontSize: 12, color: AppColors.textWeak),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            trailing: const Icon(Icons.chevron_right,
+                color: AppColors.textFaint),
+          ),
+        ),
+      );
+    }
+
+    // 普通模式或批量模式
     return Card(
       key: ValueKey(item.id),
       margin: const EdgeInsets.only(bottom: 10),
       color: selected ? AppColors.primaryLight : Colors.white,
-      // 拖动时圆角一致
       clipBehavior: Clip.antiAlias,
       child: ListTile(
         onTap: () {
@@ -273,14 +311,8 @@ class _ItemListViewState extends State<ItemListView> {
                 selected ? Icons.check_circle : Icons.circle_outlined,
                 color: selected ? AppColors.primary : AppColors.textFaint,
               )
-            // 自定义排序：外观仍是右箭头，但可按住拖动排序
-            : customSort
-                ? DragHandle(
-                    index: index,
-                    icon: Icons.chevron_right,
-                  )
-                : const Icon(Icons.chevron_right,
-                    color: AppColors.textFaint),
+            : const Icon(Icons.chevron_right,
+                color: AppColors.textFaint),
       ),
     );
   }
@@ -308,44 +340,27 @@ class _SortMenuButton extends StatelessWidget {
   }
 }
 
-/// 站点头像：品牌色底 + 首字母
+/// 站点头像：品牌色底 + 首字母（取色规则见 common/site_color.dart，详情页共用）
 class _SiteAvatar extends StatelessWidget {
   final PasswordItem item;
   const _SiteAvatar({required this.item});
 
   @override
   Widget build(BuildContext context) {
-    final color = _colorFor(item.name);
-    final letter = item.name.isNotEmpty ? item.name[0].toUpperCase() : '?';
     return Container(
       width: 40,
       height: 40,
       alignment: Alignment.center,
       decoration: BoxDecoration(
-        color: color,
+        color: siteColorFor(item.name),
         borderRadius: BorderRadius.circular(10),
       ),
       child: Text(
-        letter,
+        siteInitialFor(item.name),
         style: const TextStyle(
             color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700),
       ),
     );
-  }
-
-  Color _colorFor(String name) {
-    final lower = name.toLowerCase();
-    if (lower.contains('google')) return AppColors.google;
-    if (lower.contains('github')) return AppColors.github;
-    if (lower.contains('aws')) return AppColors.aws;
-    if (lower.contains('apple')) return AppColors.apple;
-    if (lower.contains('openai')) return AppColors.openai;
-    // 其余按名字哈希取品牌色板
-    const palette = [
-      Color(0xFF5C6BC0), Color(0xFF26A69A), Color(0xFFEF5350),
-      Color(0xFFAB47BC), Color(0xFFFFA726), Color(0xFF66BB6A),
-    ];
-    return palette[name.hashCode.abs() % palette.length];
   }
 }
 

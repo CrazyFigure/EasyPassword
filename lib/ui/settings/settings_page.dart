@@ -9,6 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/constants.dart';
 import '../../state/app_state.dart';
 import '../center_dialog.dart';
+import '../common/confirm_dialog.dart';
 import 'app_lock_setup.dart';
 import 'font_size_setting.dart';
 import 'tab_customize_sheet.dart';
@@ -157,23 +158,12 @@ class SettingsPage extends StatelessWidget {
       );
     } else {
       // 关闭：确认后禁用
-      final ok = await showDialog<bool>(
+      final ok = await showConfirmDialog(
         context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('关闭应用锁'),
-          content: const Text('关闭后将不再要求输入密码解锁，确定吗？'),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('取消')),
-            FilledButton(
-              style:
-                  FilledButton.styleFrom(backgroundColor: AppColors.danger),
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('关闭'),
-            ),
-          ],
-        ),
+        title: '关闭应用锁',
+        content: '关闭后将不再要求输入密码解锁，确定吗？',
+        confirmText: '关闭',
+        isDangerous: true,
       );
       if (ok == true) {
         await state.appLock.disable();
