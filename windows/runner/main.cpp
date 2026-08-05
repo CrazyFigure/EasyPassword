@@ -25,9 +25,31 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   project.set_dart_entrypoint_arguments(std::move(command_line_arguments));
 
   FlutterWindow window(project);
-  Win32Window::Point origin(10, 10);
   // 默认窗口 4:3（960x720）：缩短横向长度，更接近内容为主的卡片布局
   Win32Window::Size size(960, 720);
+  // 窗口居中：按主显示器工作区（已排除任务栏）计算左上角坐标。
+  // 这里传逻辑坐标即可，Win32Window::Create 内部会按 DPI 缩放。
+  Win32Window::Point origin(10, 10);
+  {
+    // 先取主显示器，再拿它的工作区与 DPI，把物理像素换算回逻辑像素
+    HMONITOR monitor = ::MonitorFromPoint({0, 0}, MONITOR_DEFAULTTOPRIMARY);
+    MONITORINFO monitor_info{};
+    monitor_info.cbSize = sizeof(MONITORINFO);
+    if (::GetMonitorInfo(monitor, &monitor_info)) {
+      UINT dpi = FlutterDesktopGetDpiForMonitor(monitor);
+      double scale_factor = dpi / 96.0;
+      const RECT& work = monitor_info.rcWork;
+      // 工作区尺寸是物理像素，除以缩放比得到逻辑尺寸后再与窗口逻辑尺寸做居中
+      double work_width = (work.right - work.left) / scale_factor;
+      double work_height = (work.bottom - work.top) / scale_factor;
+      double left = work.left / scale_factor + (work_width - size.width) / 2;
+      double top = work.top / scale_factor + (work_height - size.height) / 2;
+      // 窗口比工作区还大时钳到左上角，避免标题栏跑到屏幕外拖不动
+      origin = Win32Window::Point(
+          static_cast<unsigned int>(left > 0 ? left : 0),
+          static_cast<unsigned int>(top > 0 ? top : 0));
+    }
+  }
   if (!window.Create(L"EasyPassword", origin, size)) {
     return EXIT_FAILURE;
   }

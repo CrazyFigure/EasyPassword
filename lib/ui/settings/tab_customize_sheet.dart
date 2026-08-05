@@ -9,6 +9,7 @@ import 'package:provider/provider.dart';
 import '../../core/constants.dart';
 import '../../services/settings_service.dart';
 import '../../state/app_state.dart';
+import '../common/drag_handle.dart';
 
 class TabCustomizeSheet extends StatefulWidget {
   const TabCustomizeSheet({super.key});
@@ -87,6 +88,10 @@ class _TabCustomizeSheetState extends State<TabCustomizeSheet> {
                   : ReorderableListView.builder(
                       shrinkWrap: true,
                       itemCount: _tabs.length,
+                      // 关闭默认把手：桌面端会在行尾自动叠加一个 drag_handle 图标，
+                      // 正好压在 Switch 上，看起来像开关中间多了一条横杠。
+                      // 拖动改由左侧把手图标显式承接。
+                      buildDefaultDragHandles: false,
                       onReorderItem: (oldIndex, newIndex) {
                         setState(() {
                           final item = _tabs.removeAt(oldIndex);
@@ -100,8 +105,7 @@ class _TabCustomizeSheetState extends State<TabCustomizeSheet> {
                           dense: true,
                           visualDensity: VisualDensity.compact,
                           contentPadding: EdgeInsets.zero,
-                          leading: const Icon(Icons.drag_handle,
-                              color: AppColors.textFaint),
+                          leading: DragHandle(index: index),
                           title: Text(tab.label,
                               style: const TextStyle(
                                   fontSize: 15, color: AppColors.textMain)),

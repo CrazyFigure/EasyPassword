@@ -10,9 +10,11 @@ import '../../models/account.dart';
 import '../../models/password_item.dart';
 import '../../state/app_state.dart';
 import '../center_dialog.dart';
+import '../common/confirm_dialog.dart';
 import '../common/copy_util.dart';
 import '../common/drag_handle.dart';
 import '../common/inline_edit_form.dart';
+import '../common/site_color.dart';
 import '../item_edit_sheet.dart';
 
 class PasswordDetailPage extends StatefulWidget {
@@ -212,22 +214,12 @@ class _PasswordDetailPageState extends State<PasswordDetailPage> {
   }
 
   Future<void> _deleteItem() async {
-    final ok = await showDialog<bool>(
+    final ok = await showConfirmDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('删除条目'),
-        content: Text('确定删除 ${_item.name} 及其全部账号吗？'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('取消')),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('删除'),
-          ),
-        ],
-      ),
+      title: '删除条目',
+      content: '确定删除 ${_item.name} 及其全部账号吗？',
+      confirmText: '删除',
+      isDangerous: true,
     );
     if (ok == true && mounted) {
       final state = context.read<AppState>();
@@ -256,21 +248,11 @@ class _PasswordDetailPageState extends State<PasswordDetailPage> {
     final uri = Uri.tryParse(_item.url);
     if (uri == null) return;
     // 二次确认
-    final ok = await showDialog<bool>(
+    final ok = await showConfirmDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('打开浏览器'),
-        content: Text('即将在浏览器中打开：\n${_item.url}\n\n确认继续吗？'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('取消')),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('打开'),
-          ),
-        ],
-      ),
+      title: '打开浏览器',
+      content: '即将在浏览器中打开：\n${_item.url}\n\n确认继续吗？',
+      confirmText: '打开',
     );
     if (ok == true && mounted) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
@@ -292,11 +274,12 @@ class _SiteHeader extends StatelessWidget {
           height: 56,
           alignment: Alignment.center,
           decoration: BoxDecoration(
-            color: AppColors.primary,
+            // 与主列表缩略图同一取色规则，保证同一条目两处颜色一致
+            color: siteColorFor(item.name),
             borderRadius: BorderRadius.circular(14),
           ),
           child: Text(
-            item.name.isNotEmpty ? item.name[0].toUpperCase() : '?',
+            siteInitialFor(item.name),
             style: const TextStyle(
                 color: Colors.white, fontSize: 24, fontWeight: FontWeight.w700),
           ),
@@ -612,22 +595,12 @@ class _AccountCardState extends State<_AccountCard> {
   }
 
   Future<void> _delete() async {
-    final ok = await showDialog<bool>(
+    final ok = await showConfirmDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('删除账号'),
-        content: const Text('确定删除该账号吗？'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('取消')),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('删除'),
-          ),
-        ],
-      ),
+      title: '删除账号',
+      content: '确定删除该账号吗？',
+      confirmText: '删除',
+      isDangerous: true,
     );
     if (ok == true && mounted) {
       final state = context.read<AppState>();
