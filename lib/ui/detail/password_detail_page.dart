@@ -407,8 +407,7 @@ class _AccountCardState extends State<_AccountCard> {
                 style: const TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w500,
-                    color: AppColors.textMain,
-                    fontFamily: 'monospace'),
+                    color: AppColors.textMain),
               ),
             ),
             // 单条查看按钮（需求 1.1）
