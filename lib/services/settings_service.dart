@@ -44,6 +44,47 @@ class TabConfig {
   }
 }
 
+/// 字号选项。
+///
+/// system 不写死倍率，运行时保留 Windows/Android 的系统文字缩放；standard
+/// 明确锁定 1.0，因此界面上不再出现两个无法区分的“跟随系统”。
+enum FontSizeMode {
+  system('跟随系统', null),
+  small('小', 0.85),
+  standard('标准', 1.0),
+  large('大', 1.15),
+  extraLarge('特大', 1.3);
+
+  const FontSizeMode(this.label, this.fixedScale);
+
+  final String label;
+  final double? fixedScale;
+
+  /// 非 1.0 倍率继续沿用旧版数值格式，让尚未升级的其他设备仍能识别；
+  /// system / standard 必须使用不同字符串，才能表达“跟随”与“固定 1.0”。
+  String get storageValue => switch (this) {
+        FontSizeMode.system => 'system',
+        FontSizeMode.standard => 'standard',
+        _ => fixedScale.toString(),
+      };
+
+  /// 兼容旧版本保存的数值；旧值 1.0 原本表示“跟随系统”。
+  static FontSizeMode fromStored(String? value) {
+    if (value == null || value.isEmpty || value == 'system' || value == '1.0') {
+      return FontSizeMode.system;
+    }
+    for (final mode in FontSizeMode.values) {
+      if (mode.name == value) return mode;
+    }
+    final legacyScale = double.tryParse(value);
+    if (legacyScale == null) return FontSizeMode.system;
+    return FontSizeMode.values.firstWhere(
+      (mode) => mode.fixedScale == legacyScale,
+      orElse: () => FontSizeMode.system,
+    );
+  }
+}
+
 class SettingsService {
   /// 可同步设置保存后的通知入口，由 AppState 防抖后触发 WebDAV 自动同步。
   Future<void> Function()? onChanged;
@@ -53,16 +94,26 @@ class SettingsService {
     if (callback != null) unawaited(callback());
   }
 
-  // ---------- 字体大小（3.5.2，默认跟随系统=1.0） ----------
-  Future<double> getFontScale() async {
-    final v = await DatabaseService.getSetting('font_scale');
-    if (v == null || v.isEmpty) return 1.0;
-    return double.tryParse(v) ?? 1.0;
+  // ---------- 字体显示（字号跨端同步，字体族仅保存在当前设备） ----------
+  Future<FontSizeMode> getFontSizeMode() async {
+    final value = await DatabaseService.getSetting('font_scale');
+    return FontSizeMode.fromStored(value);
   }
 
-  Future<void> setFontScale(double scale) async {
-    await DatabaseService.setSetting('font_scale', scale.toString());
+  Future<void> setFontSizeMode(FontSizeMode mode) async {
+    await DatabaseService.setSetting('font_scale', mode.storageValue);
     _notifyChanged();
+  }
+
+  /// 当前设备选中的已安装字体；null 表示使用平台默认系统字体。
+  Future<String?> getFontFamily() async {
+    final value = await DatabaseService.getSetting('font_family');
+    return value == null || value.trim().isEmpty ? null : value.trim();
+  }
+
+  /// 字体安装情况具有设备差异，因此字体族不加入 WebDAV 同步设置。
+  Future<void> setFontFamily(String? family) async {
+    await DatabaseService.setSetting('font_family', family?.trim() ?? '');
   }
 
   // ---------- 底部栏自定义（3.5.4） ----------

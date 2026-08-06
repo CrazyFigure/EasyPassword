@@ -13,33 +13,27 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final appState = AppState();
   await appState.init();
-  // 预加载系统字体（Windows 读注册表 / Android 加载系统字体文件）
-  final systemFont = await getSystemFont();
-
-  runApp(EasyPasswordApp(appState: appState, systemFont: systemFont));
+  runApp(EasyPasswordApp(appState: appState));
 }
 
 class EasyPasswordApp extends StatelessWidget {
   final AppState appState;
-  final String? systemFont;
   const EasyPasswordApp({
     super.key,
     required this.appState,
-    required this.systemFont,
   });
 
   @override
   Widget build(BuildContext context) {
     return ChangeNotifierProvider.value(
       value: appState,
-      child: _Root(systemFont: systemFont),
+      child: const _Root(),
     );
   }
 }
 
 class _Root extends StatelessWidget {
-  final String? systemFont;
-  const _Root({required this.systemFont});
+  const _Root();
 
   @override
   Widget build(BuildContext context) {
@@ -48,9 +42,22 @@ class _Root extends StatelessWidget {
       title: 'EasyPassword',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.build(
-        fontScale: state.fontScale,
-        systemFont: systemFont,
+        fontFamily: state.fontFamily,
       ),
+      // “跟随系统”保留系统无障碍字号；其余选项使用固定倍率。把缩放放在
+      // MediaQuery 层可覆盖所有文本，也不会修改 fontSize 为空的 TextStyle。
+      builder: (context, child) {
+        final media = MediaQuery.of(context);
+        final fixedScale = state.fontSizeMode.fixedScale;
+        return MediaQuery(
+          data: media.copyWith(
+            textScaler: fixedScale == null
+                ? media.textScaler
+                : TextScaler.linear(fixedScale),
+          ),
+          child: child ?? const SizedBox.shrink(),
+        );
+      },
       home: state.locked ? const LockPage() : const HomePage(),
     );
   }

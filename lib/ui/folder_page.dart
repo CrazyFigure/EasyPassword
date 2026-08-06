@@ -178,7 +178,8 @@ class _FolderPageState extends State<FolderPage> {
       );
     }
     final children = <Widget>[
-      for (var i = 0; i < _items.length; i++) _buildItemCard(_items[i], customSort, i),
+      for (var i = 0; i < _items.length; i++)
+        _buildItemCard(_items[i], customSort, i),
     ];
     // 与主列表同一处理：仅自定义排序模式使用可拖动列表，
     // 否则用普通 ListView（避免 onReorderItem 断言）
@@ -247,7 +248,7 @@ class _FolderPageState extends State<FolderPage> {
     );
     // 自定义排序且非批量模式时整条可长按拖动（与主列表一致）
     if (customSort && !_batchMode) {
-      return ReorderableDelayedDragStartListener(
+      return QuickReorderableDelayedDragStartListener(
         key: ValueKey(item.id),
         index: index,
         child: card,

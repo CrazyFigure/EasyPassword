@@ -8,6 +8,7 @@ import '../../core/constants.dart';
 import '../../services/webdav_service.dart';
 import '../../state/app_state.dart';
 import '../common/confirm_dialog.dart';
+import '../common/secret_text_field.dart';
 
 class WebDavSetupPage extends StatefulWidget {
   const WebDavSetupPage({super.key});
@@ -246,9 +247,9 @@ class _WebDavSetupPageState extends State<WebDavSetupPage> {
             decoration: const InputDecoration(labelText: '用户名'),
           ),
           const SizedBox(height: 12),
-          TextField(
+          SecretTextField(
             controller: _passCtrl,
-            obscureText: true,
+            copyLabel: 'WebDAV 密码',
             decoration: const InputDecoration(labelText: '密码（应用密码）'),
           ),
           const SizedBox(height: 18),

@@ -22,8 +22,8 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   // 页面缓存（避免切 Tab 重复构建）
   final _pages = <String, Widget>{
-    'password': ItemListView(type: ItemType.password),
-    'apikey': ItemListView(type: ItemType.apikey),
+    'password': const ItemListView(type: ItemType.password),
+    'apikey': const ItemListView(type: ItemType.apikey),
     'search': const SearchPage(),
     'settings': const SettingsPage(),
   };
@@ -42,13 +42,13 @@ class _HomePageState extends State<HomePage> {
           ],
         ),
       ),
-      floatingActionButton: state.currentTab == 'password' ||
-              state.currentTab == 'apikey'
-          ? FloatingActionButton(
-              onPressed: () => _openAddItem(context, state.currentTab),
-              child: const Icon(Icons.add),
-            )
-          : null,
+      floatingActionButton:
+          state.currentTab == 'password' || state.currentTab == 'apikey'
+              ? FloatingActionButton(
+                  onPressed: () => _openAddItem(context, state.currentTab),
+                  child: const Icon(Icons.add),
+                )
+              : null,
       bottomNavigationBar: _BottomNavBar(
         tabs: visibleTabs,
         current: state.currentTab,
@@ -154,7 +154,8 @@ class _NavItem extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(_iconFor(tab.id),
-                size: 20, color: active ? Colors.white : AppColors.textSecondary),
+                size: 20,
+                color: active ? Colors.white : AppColors.textSecondary),
             const SizedBox(height: 2),
             Text(
               tab.label,
@@ -222,10 +223,24 @@ class _AddItemSheetState extends State<_AddItemSheet> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
-            '新增${isApi ? 'API Key' : '密码'}条目',
-            style: const TextStyle(
-                fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.textMain),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '新增${isApi ? 'API Key' : '密码'}条目',
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textMain,
+                  ),
+                ),
+              ),
+              IconButton(
+                tooltip: '关闭',
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.close, color: AppColors.textWeak),
+              ),
+            ],
           ),
           const SizedBox(height: 16),
           TextField(

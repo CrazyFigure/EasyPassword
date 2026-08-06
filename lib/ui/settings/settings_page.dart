@@ -65,8 +65,9 @@ class SettingsPage extends StatelessWidget {
         _SettingsCard(children: [
           _ActionTile(
             icon: Icons.text_fields,
-            title: '字体大小',
-            subtitle: '默认跟随系统',
+            title: '字体',
+            subtitle:
+                '${state.fontSizeMode.label} · ${state.fontFamily ?? '系统默认'}',
             onTap: () => Navigator.push(
               context,
               MaterialPageRoute(builder: (_) => const FontSizeSettingPage()),

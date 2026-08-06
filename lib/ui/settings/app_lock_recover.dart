@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/constants.dart';
 import '../../state/app_state.dart';
+import '../common/secret_text_field.dart';
 
 class AppLockRecoverSheet extends StatefulWidget {
   final String question;
@@ -32,8 +33,7 @@ class _AppLockRecoverSheetState extends State<AppLockRecoverSheet> {
 
   Future<void> _verifyAnswer() async {
     final state = context.read<AppState>();
-    final ok = await state.appLock
-        .verifySecurityAnswer(_answerCtrl.text);
+    final ok = await state.appLock.verifySecurityAnswer(_answerCtrl.text);
     if (!mounted) return;
     if (ok) {
       setState(() => _verified = true);
@@ -72,19 +72,30 @@ class _AppLockRecoverSheetState extends State<AppLockRecoverSheet> {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding:
-          EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom + 20),
+      padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom + 20),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text('恢复应用锁密码',
-                style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.textMain)),
+            Row(
+              children: [
+                const Expanded(
+                  child: Text('恢复应用锁密码',
+                      style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.textMain)),
+                ),
+                IconButton(
+                  tooltip: '关闭',
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close, color: AppColors.textWeak),
+                ),
+              ],
+            ),
             const SizedBox(height: 16),
             if (!_verified) ...[
               TextField(
@@ -104,15 +115,15 @@ class _AppLockRecoverSheetState extends State<AppLockRecoverSheet> {
               const Text('验证通过，请设置新密码',
                   style: TextStyle(fontSize: 13, color: AppColors.textWeak)),
               const SizedBox(height: 12),
-              TextField(
+              SecretTextField(
                 controller: _newPinCtrl,
-                obscureText: true,
+                copyLabel: '新应用锁密码',
                 decoration: const InputDecoration(labelText: '新密码'),
               ),
               const SizedBox(height: 12),
-              TextField(
+              SecretTextField(
                 controller: _newPin2Ctrl,
-                obscureText: true,
+                copyLabel: '确认密码',
                 decoration: const InputDecoration(labelText: '确认新密码'),
               ),
               const SizedBox(height: 16),

@@ -30,7 +30,8 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   bool initialized = false;
   bool locked = true; // 应用锁是否锁定
   bool appLockEnabled = false; // 应用锁配置是否开启（同步缓存）
-  double fontScale = 1.0; // 字体缩放（默认 1.0 = 跟随系统）
+  FontSizeMode fontSizeMode = FontSizeMode.system; // system 保留平台文字缩放
+  String? fontFamily; // null 使用 Windows/Android 平台默认系统字体
   String sortMode = 'name_asc'; // 排序模式：name_asc | custom
   String currentTab = 'password';
   List<PasswordItem> passwordItems = [];
@@ -76,7 +77,8 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     tabConfig = await settings.getTabConfig();
     currentTab = tabConfig.defaultTabId;
     revealAll = await settings.getRevealAll();
-    fontScale = await settings.getFontScale();
+    fontSizeMode = await settings.getFontSizeMode();
+    fontFamily = await settings.getFontFamily();
     sortMode = await settings.getSortMode();
     autoSyncEnabled = await settings.getAutoSyncEnabled();
     autoSyncIntervalMinutes = await settings.getAutoSyncIntervalMinutes();
@@ -93,10 +95,19 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     _scheduleAutomaticSync(const Duration(milliseconds: 800));
   }
 
-  /// 更新字体缩放并缓存
-  Future<void> updateFontScale(double scale) async {
-    fontScale = scale;
-    await settings.setFontScale(scale);
+  /// 仅预览字体设置，不落库；设置页取消或返回时可无缝恢复原值。
+  void previewTypography(FontSizeMode sizeMode, String? family) {
+    fontSizeMode = sizeMode;
+    fontFamily = family;
+    notifyListeners();
+  }
+
+  /// 保存字号与当前设备字体。字号参与多端同步，字体族因安装差异仅本机保存。
+  Future<void> saveTypography(FontSizeMode sizeMode, String? family) async {
+    fontSizeMode = sizeMode;
+    fontFamily = family;
+    await settings.setFontSizeMode(sizeMode);
+    await settings.setFontFamily(family);
     notifyListeners();
   }
 
@@ -276,7 +287,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     appLockEnabled = await appLock.isEnabled();
     tabConfig = await settings.getTabConfig();
     revealAll = await settings.getRevealAll();
-    fontScale = await settings.getFontScale();
+    fontSizeMode = await settings.getFontSizeMode();
     sortMode = await settings.getSortMode();
     if (!tabConfig.visibleIds.contains(currentTab)) {
       currentTab = tabConfig.defaultTabId;

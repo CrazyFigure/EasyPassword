@@ -99,8 +99,10 @@ class _ApiKeyDetailPageState extends State<ApiKeyDetailPage> {
                       child: Padding(
                         padding: const EdgeInsets.symmetric(vertical: 4),
                         child: Row(children: [
-                          Icon(showAll ? Icons.visibility : Icons.visibility_off,
-                              size: 15, color: AppColors.primary),
+                          Icon(
+                              showAll ? Icons.visibility : Icons.visibility_off,
+                              size: 15,
+                              color: AppColors.primary),
                           const SizedBox(width: 4),
                           Text(showAll ? '隐藏' : '显示全部',
                               style: const TextStyle(
@@ -382,7 +384,8 @@ class _UserCardState extends State<_UserCard> {
           ),
           // 用户行头
           Row(children: [
-            const Icon(Icons.person_outline, size: 18, color: AppColors.primary),
+            const Icon(Icons.person_outline,
+                size: 18, color: AppColors.primary),
             const SizedBox(width: 6),
             Expanded(
               child: Text(widget.account.username,
@@ -419,8 +422,7 @@ class _UserCardState extends State<_UserCard> {
             Expanded(
               child: Text(
                 _pwdRevealed ? (_plainPwd ?? '********') : '********',
-                style: const TextStyle(
-                    fontSize: 13, color: AppColors.textMain),
+                style: const TextStyle(fontSize: 13, color: AppColors.textMain),
               ),
             ),
             CopyIconButton(
@@ -671,7 +673,7 @@ class _ApiKeyTileState extends State<_ApiKeyTile> {
     }
 
     // 整条可长按拖动排序：把手图标不再是唯一拖动区域
-    return ReorderableDelayedDragStartListener(
+    return QuickReorderableDelayedDragStartListener(
       index: widget.index,
       child: Container(
         margin: const EdgeInsets.only(bottom: 8),
@@ -863,8 +865,7 @@ class _NoteCard extends StatelessWidget {
           const SizedBox(width: 12),
           Expanded(
             child: Text(text,
-                style: const TextStyle(
-                    fontSize: 13, color: AppColors.textMain),
+                style: const TextStyle(fontSize: 13, color: AppColors.textMain),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis),
           ),

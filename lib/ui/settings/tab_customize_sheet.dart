@@ -37,7 +37,8 @@ class _TabCustomizeSheetState extends State<TabCustomizeSheet> {
     setState(() {
       _tabs = [
         for (final id in cfg.visibleIds)
-          NavTab.all.firstWhere((t) => t.id == id, orElse: () => NavTab(id, id)),
+          NavTab.all
+              .firstWhere((t) => t.id == id, orElse: () => NavTab(id, id)),
       ];
       _defaultId = cfg.defaultTabId;
       _loaded = true;
@@ -64,11 +65,22 @@ class _TabCustomizeSheetState extends State<TabCustomizeSheet> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Text('底部栏自定义',
-              style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.textMain)),
+          Row(
+            children: [
+              const Expanded(
+                child: Text('底部栏自定义',
+                    style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textMain)),
+              ),
+              IconButton(
+                tooltip: '关闭',
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.close, color: AppColors.textWeak),
+              ),
+            ],
+          ),
           const SizedBox(height: 12),
           const Divider(height: 1, color: AppColors.border),
           const SizedBox(height: 8),
@@ -125,8 +137,8 @@ class _TabCustomizeSheetState extends State<TabCustomizeSheet> {
                     dense: true,
                     visualDensity: VisualDensity.compact,
                     contentPadding: EdgeInsets.zero,
-                    leading:
-                        const Icon(Icons.drag_handle, color: Colors.transparent),
+                    leading: const Icon(Icons.drag_handle,
+                        color: Colors.transparent),
                     title: Text(tab.label,
                         style: const TextStyle(
                             fontSize: 15, color: AppColors.textWeak)),
