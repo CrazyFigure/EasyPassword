@@ -54,7 +54,8 @@ class DbKeys {
   static const String appLockSalt = 'app_lock_salt';
   static const String securityQuestion = 'security_question';
   static const String securityAnswer = 'security_answer_hash';
-  static const String fontScale = 'font_scale'; // 1.0=跟随系统
+  static const String fontScale = 'font_scale'; // FontSizeMode.name；兼容旧数值
+  static const String fontFamily = 'font_family'; // 当前设备字体；空值=系统默认
   static const String webdavUrl = 'webdav_url';
   static const String webdavUser = 'webdav_username';
   static const String webdavPass = 'webdav_password';

@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../core/constants.dart';
 import '../state/app_state.dart';
 import 'center_dialog.dart';
+import 'common/secret_text_field.dart';
 import 'settings/app_lock_recover.dart';
 
 class LockPage extends StatefulWidget {
@@ -101,15 +102,16 @@ class _LockPageState extends State<LockPage> {
                   style: TextStyle(fontSize: 13, color: AppColors.textWeak),
                 ),
                 const SizedBox(height: 28),
-                TextField(
+                SecretTextField(
                   controller: _pinController,
-                  obscureText: true,
+                  copyLabel: '应用锁密码',
                   autofocus: true,
                   onSubmitted: (_) => _unlock(),
                   decoration: InputDecoration(
                     hintText: '应用锁密码',
                     errorText: _error ? '密码错误' : null,
-                    prefixIcon: const Icon(Icons.key, color: AppColors.textWeak),
+                    prefixIcon:
+                        const Icon(Icons.key, color: AppColors.textWeak),
                   ),
                 ),
                 const SizedBox(height: 16),

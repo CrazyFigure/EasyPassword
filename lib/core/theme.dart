@@ -2,24 +2,26 @@
 library;
 
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:win32_registry/win32_registry.dart';
 
 import 'constants.dart';
 
 class AppTheme {
-  /// 构建主题，[fontScale] 为字体缩放（默认 1.0 = 跟随系统），
-  /// [systemFont] 为系统默认字体名（Windows 为字体名，Android 为 FontLoader 注册名）
-  static ThemeData build({double fontScale = 1.0, String? systemFont}) {
-    // Windows 使用系统字体，Android 使用 FontLoader 注册的字体
-    final fontFamily = systemFont;
-    // 中文 fallback 字体列表：Windows 主字体不含中文字形时回退
+  /// 构建主题。
+  ///
+  /// [fontFamily] 为空时不覆盖 Flutter 的平台默认字体：Windows 使用
+  /// Segoe UI，Android 使用设备 ROM 配置的 sans-serif；非空时使用用户从
+  /// 当前设备已安装字体中选择的字体，并保留平台系统字体作为缺字回退。
+  /// 字号缩放不在 TextTheme 上做乘法，统一由根 MediaQuery 处理，避免新版
+  /// Flutter 对 fontSize 为空的 TextStyle 应用 factor 时触发断言。
+  static ThemeData build({String? fontFamily}) {
+    // 中文及缺字回退只引用系统字体，不随应用打包第三方字体文件。
     final fontFamilyFallback = Platform.isWindows
-        ? const <String>['Microsoft YaHei', 'SimSun', 'DengXian', 'SimHei']
-        : null;
+        ? const <String>['Microsoft YaHei UI', 'Microsoft YaHei', 'Segoe UI']
+        : Platform.isAndroid
+            ? const <String>['Noto Sans CJK SC', 'Roboto', 'sans-serif']
+            : null;
 
     final base = ThemeData(
       useMaterial3: true,
@@ -31,8 +33,7 @@ class AppTheme {
         error: AppColors.danger,
       ),
       scaffoldBackgroundColor: AppColors.background,
-      // 使用系统默认字体（Windows 从注册表读取 MessageFont；
-      // Android 通过 FontLoader 加载系统字体文件）
+      // null 表示完全交给平台选择默认字体；显式值来自已安装字体列表。
       fontFamily: fontFamily,
       fontFamilyFallback: fontFamilyFallback,
     );
@@ -43,8 +44,8 @@ class AppTheme {
     );
 
     return base.copyWith(
-      textTheme: textTheme.apply(fontSizeFactor: fontScale),
-      appBarTheme: const AppBarTheme(
+      textTheme: textTheme,
+      appBarTheme: AppBarTheme(
         backgroundColor: AppColors.background,
         elevation: 0,
         centerTitle: false,
@@ -52,8 +53,10 @@ class AppTheme {
           color: AppColors.textMain,
           fontSize: 20,
           fontWeight: FontWeight.w700,
+          fontFamily: fontFamily,
+          fontFamilyFallback: fontFamilyFallback,
         ),
-        iconTheme: IconThemeData(color: AppColors.textMain),
+        iconTheme: const IconThemeData(color: AppColors.textMain),
       ),
       cardTheme: CardThemeData(
         color: AppColors.card,
@@ -125,63 +128,5 @@ class AppTheme {
         ),
       ),
     );
-  }
-}
-
-/// 获取平台系统默认字体：
-/// Windows 从注册表 [HKCU\Control Panel\Desktop\WindowMetrics] 读取 MessageFont 字体名；
-/// Android 通过平台通道读取系统字体文件并用 FontLoader 注册为 "SystemFont"；
-/// 返回 null 表示使用 Flutter 默认字体（兜底）
-Future<String?> getSystemFont() async {
-  if (Platform.isWindows) {
-    return _readWindowsSystemFont();
-  }
-  if (Platform.isAndroid) {
-    return _loadAndroidSystemFont();
-  }
-  return null;
-}
-
-/// Windows：从注册表读取系统默认字体名
-String? _readWindowsSystemFont() {
-  try {
-    final key = CURRENT_USER.open(
-      r'Control Panel\Desktop\WindowMetrics',
-    );
-    // MessageFont 格式: "FontName,fontHeight"（如 "Segoe UI,-12"）
-    final msgFont = key.getString('MessageFont');
-    if (msgFont != null && msgFont.isNotEmpty) {
-      final commaIdx = msgFont.indexOf(',');
-      if (commaIdx > 0) return msgFont.substring(0, commaIdx);
-      return msgFont;
-    }
-    // 备选：CaptionFont（窗口标题栏字体）
-    final captionFont = key.getString('CaptionFont');
-    if (captionFont != null && captionFont.isNotEmpty) {
-      final commaIdx = captionFont.indexOf(',');
-      if (commaIdx > 0) return captionFont.substring(0, commaIdx);
-      return captionFont;
-    }
-  } catch (_) {
-    // 注册表读取失败（权限/键缺失），返回 null 由 Flutter 使用默认字体
-  }
-  return null;
-}
-
-/// Android：通过平台通道读取系统字体文件字节，用 FontLoader 注册为 "SystemFont"
-Future<String?> _loadAndroidSystemFont() async {
-  try {
-    // 调用原生侧解析 fonts.xml 获取系统默认 sans-serif 字体文件字节
-    final bytes = await const MethodChannel('easypassword/system_font')
-        .invokeMethod<Uint8List>('getSystemFontBytes');
-    if (bytes == null || bytes.isEmpty) return null;
-    // 用 FontLoader 将字体字节注册到 Flutter 字体集合
-    final loader = FontLoader('SystemFont');
-    loader.addFont(Future.value(ByteData.sublistView(bytes)));
-    await loader.load();
-    return 'SystemFont';
-  } catch (_) {
-    // 读取/注册失败，返回 null 由 Flutter 使用默认 Roboto
-    return null;
   }
 }

@@ -52,12 +52,26 @@ class _ItemEditSheetState extends State<ItemEditSheet> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
-            widget.item == null
-                ? '新增${_isApi ? 'API Key' : '密码'}条目'
-                : '编辑条目',
-            style: const TextStyle(
-                fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.textMain),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  widget.item == null
+                      ? '新增${_isApi ? 'API Key' : '密码'}条目'
+                      : '编辑条目',
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textMain,
+                  ),
+                ),
+              ),
+              IconButton(
+                tooltip: '关闭',
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.close, color: AppColors.textWeak),
+              ),
+            ],
           ),
           const SizedBox(height: 16),
           TextField(

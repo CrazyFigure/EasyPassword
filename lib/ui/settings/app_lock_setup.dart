@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/constants.dart';
 import '../../state/app_state.dart';
+import '../common/secret_text_field.dart';
 
 class AppLockSetupPage extends StatefulWidget {
   const AppLockSetupPage({super.key});
@@ -65,15 +66,15 @@ class _AppLockSetupPageState extends State<AppLockSetupPage> {
   }
 
   Future<void> _verifyCurrent() async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) {
-        final ctrl = TextEditingController();
-        return AlertDialog(
+    final ctrl = TextEditingController();
+    try {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
           title: const Text('验证当前密码'),
-          content: TextField(
+          content: SecretTextField(
             controller: ctrl,
-            obscureText: true,
+            copyLabel: '当前应用锁密码',
             autofocus: true,
             decoration: const InputDecoration(labelText: '当前应用锁密码'),
           ),
@@ -87,18 +88,20 @@ class _AppLockSetupPageState extends State<AppLockSetupPage> {
               style: FilledButton.styleFrom(minimumSize: const Size(88, 44)),
               onPressed: () async {
                 final state = context.read<AppState>();
-                final ok = await state.appLock.verify(ctrl.text);
+                final verified = await state.appLock.verify(ctrl.text);
                 if (!ctx.mounted) return;
-                Navigator.pop(ctx, ok);
+                Navigator.pop(ctx, verified);
               },
               child: const Text('验证'),
             ),
           ],
-        );
-      },
-    );
-    if (ok == true && mounted) {
-      setState(() => _verified = true);
+        ),
+      );
+      if (ok == true && mounted) {
+        setState(() => _verified = true);
+      }
+    } finally {
+      ctrl.dispose();
     }
   }
 
@@ -115,9 +118,7 @@ class _AppLockSetupPageState extends State<AppLockSetupPage> {
       appBar: AppBar(
         title: Text(isEnabled ? '修改应用锁' : '开启应用锁'),
       ),
-      body: isEnabled && !_verified
-          ? _buildVerifyView()
-          : _buildFormView(),
+      body: isEnabled && !_verified ? _buildVerifyView() : _buildFormView(),
     );
   }
 
@@ -150,18 +151,18 @@ class _AppLockSetupPageState extends State<AppLockSetupPage> {
     return ListView(
       padding: const EdgeInsets.all(20),
       children: [
-        TextField(
+        SecretTextField(
           controller: _pinCtrl,
-          obscureText: true,
+          copyLabel: '应用锁密码',
           decoration: const InputDecoration(
             labelText: '应用锁密码',
             hintText: '至少 4 位',
           ),
         ),
         const SizedBox(height: 12),
-        TextField(
+        SecretTextField(
           controller: _pin2Ctrl,
-          obscureText: true,
+          copyLabel: '确认密码',
           decoration: const InputDecoration(labelText: '确认密码'),
         ),
         const SizedBox(height: 20),

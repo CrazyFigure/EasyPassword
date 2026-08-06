@@ -1,9 +1,36 @@
 /// 拖动排序相关的共用组件
 library;
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/constants.dart';
+
+/// 整行长按拖动的触发时长。250ms 足以区分普通点击，同时比 Flutter 默认
+/// kLongPressTimeout（500ms）更利落；拖动把手仍保持按下即拖。
+const Duration _quickDragDelay = Duration(milliseconds: 250);
+
+/// 可调延迟的整行拖动监听器。
+///
+/// Flutter 自带 ReorderableDelayedDragStartListener 没有暴露 delay 参数，
+/// 因此仅替换其识别器，复用框架原本的拖动排序与手势冲突处理。
+class QuickReorderableDelayedDragStartListener
+    extends ReorderableDragStartListener {
+  const QuickReorderableDelayedDragStartListener({
+    super.key,
+    required super.child,
+    required super.index,
+    super.enabled,
+  });
+
+  @override
+  MultiDragGestureRecognizer createRecognizer() {
+    return DelayedMultiDragGestureRecognizer(
+      delay: _quickDragDelay,
+      debugOwner: this,
+    );
+  }
+}
 
 /// 统一的拖动把手：鼠标悬停显示抓手光标，包裹唯一的把手图标。
 ///

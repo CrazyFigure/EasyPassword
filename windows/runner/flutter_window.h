@@ -3,6 +3,8 @@
 
 #include <flutter/dart_project.h>
 #include <flutter/flutter_view_controller.h>
+#include <flutter/method_channel.h>
+#include <flutter/standard_method_codec.h>
 
 #include <memory>
 
@@ -28,6 +30,10 @@ class FlutterWindow : public Win32Window {
 
   // The Flutter instance hosted by this window.
   std::unique_ptr<flutter::FlutterViewController> flutter_controller_;
+
+  // 字体目录通道：仅在 Dart 字体选择器首次展开时枚举已安装字体。
+  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
+      font_channel_;
 };
 
 #endif  // RUNNER_FLUTTER_WINDOW_H_

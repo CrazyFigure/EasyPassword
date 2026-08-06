@@ -77,7 +77,8 @@ class _ItemListViewState extends State<ItemListView> {
           const _SortMenuButton(),
           // 设置入口
           IconButton(
-            icon: const Icon(Icons.settings_outlined, color: AppColors.textMain),
+            icon:
+                const Icon(Icons.settings_outlined, color: AppColors.textMain),
             onPressed: () => state.setTab('settings'),
           ),
         ],
@@ -147,9 +148,8 @@ class _ItemListViewState extends State<ItemListView> {
               padding: const EdgeInsets.symmetric(horizontal: 12),
               visualDensity: VisualDensity.compact,
               // 有选中项时用危险色强调删除动作
-              foregroundColor: _batchMode && _selected.isNotEmpty
-                  ? AppColors.danger
-                  : null,
+              foregroundColor:
+                  _batchMode && _selected.isNotEmpty ? AppColors.danger : null,
             ),
             onPressed: _batchMode ? _confirmBatchDelete : _enterBatch,
             child: Text(
@@ -276,7 +276,7 @@ class _ItemListViewState extends State<ItemListView> {
       );
       // 自定义排序模式下文件夹同样可长按拖动
       if (customSort && !_batchMode) {
-        return ReorderableDelayedDragStartListener(
+        return QuickReorderableDelayedDragStartListener(
           key: ValueKey(entry.entryKey),
           index: index,
           child: card,
@@ -284,7 +284,8 @@ class _ItemListViewState extends State<ItemListView> {
       }
       return card;
     }
-    return _buildItemCard(state, entry.item!, customSort, index, entry.entryKey);
+    return _buildItemCard(
+        state, entry.item!, customSort, index, entry.entryKey);
   }
 
   /// 进入文件夹
@@ -356,7 +357,7 @@ class _ItemListViewState extends State<ItemListView> {
     // 用 Delayed 版本而非 ReorderableDragStartListener：后者按下即接管手势，
     // 会吃掉 ListTile 的点击，导致点条目进不了详情页。
     if (customSort && !_batchMode) {
-      return ReorderableDelayedDragStartListener(
+      return QuickReorderableDelayedDragStartListener(
         // key 必须挂在 itemBuilder 返回的根 widget 上，
         // 否则 ReorderableListView 会断言「every item must have a key」
         key: ValueKey(entryKey),
@@ -388,13 +389,12 @@ class _ItemListViewState extends State<ItemListView> {
             ),
             subtitle: Text(
               item.siteNote.isEmpty ? item.url : item.siteNote,
-              style: const TextStyle(
-                  fontSize: 12, color: AppColors.textWeak),
+              style: const TextStyle(fontSize: 12, color: AppColors.textWeak),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
-            trailing: const Icon(Icons.chevron_right,
-                color: AppColors.textFaint),
+            trailing:
+                const Icon(Icons.chevron_right, color: AppColors.textFaint),
           ),
         ),
       );
@@ -441,8 +441,7 @@ class _ItemListViewState extends State<ItemListView> {
         ),
         subtitle: Text(
           item.siteNote.isEmpty ? item.url : item.siteNote,
-          style: const TextStyle(
-              fontSize: 12, color: AppColors.textWeak),
+          style: const TextStyle(fontSize: 12, color: AppColors.textWeak),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),
@@ -451,8 +450,7 @@ class _ItemListViewState extends State<ItemListView> {
                 selected ? Icons.check_circle : Icons.circle_outlined,
                 color: selected ? AppColors.primary : AppColors.textFaint,
               )
-            : const Icon(Icons.chevron_right,
-                color: AppColors.textFaint),
+            : const Icon(Icons.chevron_right, color: AppColors.textFaint),
       ),
     );
   }
