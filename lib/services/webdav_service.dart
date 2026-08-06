@@ -1,5 +1,5 @@
-/// WebDAV 同步服务：加密快照 + 增量合并
-/// 原则：先落本地，再推送远端（需求 4 / 4.1）
+/// WebDAV 多端同步服务：跨设备加密快照、删除墓碑与逐行最后修改者胜。
+/// 自动同步始终先合并本地与远端，再用条件写入防止并发设备互相覆盖。
 library;
 
 import 'dart:convert';
@@ -11,6 +11,9 @@ import 'crypto_service.dart';
 import 'data_service.dart';
 import 'database.dart';
 
+/// 用户可选择的三种同步方向。
+enum WebDavSyncMode { localToRemote, remoteToLocal, automatic }
+
 class WebDavService {
   final CryptoService crypto;
   final DataService data;
@@ -18,233 +21,429 @@ class WebDavService {
   WebDavService(this.crypto, this.data);
 
   static const String _snapshotName = 'easypassword-snapshot.json.enc';
+  static const String _collectionName = 'EasyPassword';
+  static const int _snapshotVersion = 3;
 
-  // ================= 导出 =================
+  // ================= 快照导出与加密 =================
 
-  /// 导出当前全部数据为 JSON（敏感字段仍为密文）
+  /// 导出完整同步状态。业务表直接读取全部行，因此软删除墓碑也会进入快照，
+  /// 断网设备恢复后才能用 updated_at 正确处理“修改与删除”的冲突。
   Future<Map<String, dynamic>> exportAll() async {
-    final items = <Map<String, dynamic>>[];
-    final folders = <Map<String, dynamic>>[];
-    for (final type in const ['password', 'apikey']) {
-      // 文件夹与条目分开导出，条目通过 folder_id 关联所属文件夹
-      for (final f in await data.listFolders(type)) {
-        folders.add(f.toMap());
-      }
-      // 导出跨文件夹：含文件夹内条目，folder_id 随条目一起进快照
-      final list = await data.listItems(type, allFolders: true);
-      for (final item in list) {
-        final accounts = await data.listAccounts(item.id);
-        final accList = <Map<String, dynamic>>[];
-        for (final acc in accounts) {
-          final keys = await data.listApiKeys(acc.id);
-          accList.add({
-            ...acc.toMap(),
-            'api_keys': keys.map((k) => k.toMap()).toList(),
-          });
-        }
-        items.add({
-          ...item.toMap(),
-          'accounts': accList,
-        });
-      }
+    final db = await DatabaseService.db;
+    final folders = await db.query('folders');
+    final items = await db.query('password_items');
+    final accounts = <Map<String, dynamic>>[];
+    final apiKeys = <Map<String, dynamic>>[];
+
+    // 整个 JSON 随后会再用 WebDAV 共享密钥加密，因此跨设备快照内部使用
+    // 明文逻辑值；导入另一台设备时再用该设备自己的数据密钥重新加密。
+    for (final row in await db.query('accounts')) {
+      final account = Map<String, dynamic>.from(row);
+      final encrypted = (account.remove('password_enc') as String?) ?? '';
+      account['password_plain'] = await crypto.decrypt(encrypted);
+      accounts.add(account);
     }
-    // 全局修订号：当前时间戳（单调递增）
+    for (final row in await db.query('api_keys')) {
+      final apiKey = Map<String, dynamic>.from(row);
+      final encrypted = (apiKey.remove('key_enc') as String?) ?? '';
+      apiKey['key_plain'] = await crypto.decrypt(encrypted);
+      apiKeys.add(apiKey);
+    }
+
     final revision = DateTime.now().millisecondsSinceEpoch.toString();
     await DatabaseService.setSetting('sync_revision', revision);
     return {
-      'revision': revision,
       'app': 'EasyPassword',
-      'version': 2,
-      'folders': folders,
-      'items': items,
+      'version': _snapshotVersion,
+      'revision': revision,
+      'folders': folders.map(Map<String, dynamic>.from).toList(),
+      'items': items.map(Map<String, dynamic>.from).toList(),
+      'accounts': accounts,
+      'api_keys': apiKeys,
+      'settings': await DatabaseService.getSyncableSettingRows(),
     };
   }
 
-  /// 生成加密快照文本
-  Future<String> buildSnapshot() async {
+  /// 生成快照。网络同步传入连接信息后使用跨设备共享密钥；未传时沿用
+  /// 本机字段密钥，保留本地单元测试和旧备份调用的兼容性。
+  Future<String> buildSnapshot({
+    String? baseUrl,
+    String username = '',
+    String password = '',
+  }) async {
     final payload = jsonEncode(await exportAll());
-    return crypto.encrypt(payload);
+    if (baseUrl == null) return crypto.encrypt(payload);
+    return crypto.encryptForSync(
+      payload,
+      _syncSecret(username, password),
+      _syncIdentity(baseUrl),
+    );
   }
 
-  // ================= 导入合并 =================
+  // ================= 快照导入、覆盖与合并 =================
 
-  /// 解析并合并远端快照（增量：以 updated_at 晚者胜）
-  Future<int> mergeSnapshot(String encryptedSnapshot) async {
-    final jsonStr = await crypto.decrypt(encryptedSnapshot);
-    final remote = jsonDecode(jsonStr) as Map<String, dynamic>;
-    final remoteItems = (remote['items'] as List?) ?? [];
-    // v1 快照没有 folders 字段，缺省为空即可向后兼容
-    final remoteFolders = (remote['folders'] as List?) ?? [];
+  /// 合并快照：同一主键逐行比较 updated_at，时间更新的一侧胜出；
+  /// 时间完全相同时再比较规范化内容，确保所有设备最终选择同一结果。
+  /// 返回合并的顶层条目数，维持旧版调用约定。
+  Future<int> mergeSnapshot(
+    String encryptedSnapshot, {
+    String? baseUrl,
+    String username = '',
+    String password = '',
+  }) async {
+    final snapshot = await _decodeSnapshot(
+      encryptedSnapshot,
+      baseUrl: baseUrl,
+      username: username,
+      password: password,
+    );
+    return _applySnapshot(snapshot, replaceLocal: false);
+  }
 
-    var merged = 0;
+  /// 远端覆盖本地：完整替换四张业务表和可同步系统设置。
+  /// WebDAV 凭据、设备数据密钥及同步运行状态始终保留在本机。
+  Future<int> replaceLocalSnapshot(
+    String encryptedSnapshot, {
+    required String baseUrl,
+    String username = '',
+    String password = '',
+  }) async {
+    final snapshot = await _decodeSnapshot(
+      encryptedSnapshot,
+      baseUrl: baseUrl,
+      username: username,
+      password: password,
+    );
+    return _applySnapshot(snapshot, replaceLocal: true);
+  }
+
+  /// 解密并校验快照基本结构，错误凭据和损坏内容都给出可操作提示。
+  Future<Map<String, dynamic>> _decodeSnapshot(
+    String encryptedSnapshot, {
+    String? baseUrl,
+    required String username,
+    required String password,
+  }) async {
+    final jsonText = baseUrl == null
+        ? await crypto.decrypt(encryptedSnapshot)
+        : await crypto.decryptForSync(
+            encryptedSnapshot,
+            _syncSecret(username, password),
+            _syncIdentity(baseUrl),
+          );
+    try {
+      final value = jsonDecode(jsonText);
+      if (value is! Map) throw const FormatException();
+      final snapshot = Map<String, dynamic>.from(value);
+      if (snapshot['app'] != 'EasyPassword') throw const FormatException();
+      return snapshot;
+    } catch (_) {
+      throw Exception('同步快照格式无效或已经损坏');
+    }
+  }
+
+  /// 应用解密后的快照。v3 为四表扁平结构；v1/v2 的嵌套结构会在此
+  /// 展开后继续合并，保证已有远端文件可以平滑升级。
+  Future<int> _applySnapshot(Map<String, dynamic> snapshot,
+      {required bool replaceLocal}) async {
+    final rows = _extractRows(snapshot);
     final db = await DatabaseService.db;
+    var mergedItems = 0;
+
     await db.transaction((txn) async {
-      // 先合并文件夹，保证随后写入的条目 folder_id 有对应文件夹
-      for (final raw in remoteFolders) {
-        final folder = Map<String, dynamic>.from(raw as Map);
-        final local = await _queryLocalRow(txn, 'folders', folder['id'] as String);
-        if (local == null ||
-            (folder['updated_at'] as int) > (local['updated_at'] as int)) {
-          await txn.insert('folders', folder,
-              conflictAlgorithm: ConflictAlgorithm.replace);
+      if (replaceLocal) {
+        // 先删子表再删父表，兼容未来补充外键约束的数据库版本。
+        for (final table in const [
+          'api_keys',
+          'accounts',
+          'password_items',
+          'folders',
+        ]) {
+          await txn.delete(table);
+        }
+        final placeholders =
+            List.filled(DatabaseService.syncableSettingKeys.length, '?')
+                .join(',');
+        await txn.delete(
+          'settings',
+          where: 'key IN ($placeholders)',
+          whereArgs: DatabaseService.syncableSettingKeys.toList(),
+        );
+      }
+
+      for (final table in const [
+        'folders',
+        'password_items',
+        'accounts',
+        'api_keys',
+      ]) {
+        for (final remoteRow in rows[table]!) {
+          final id = remoteRow['id']?.toString();
+          if (id == null || id.isEmpty) continue;
+          final local =
+              replaceLocal ? null : await _queryLocalRow(txn, table, 'id', id);
+          if (replaceLocal ||
+              local == null ||
+              await _remoteWins(table, remoteRow, local)) {
+            final prepared = await _prepareForLocal(table, remoteRow);
+            await txn.insert(
+              table,
+              prepared,
+              conflictAlgorithm: ConflictAlgorithm.replace,
+            );
+            if (table == 'password_items') mergedItems++;
+          }
         }
       }
-      for (final raw in remoteItems) {
-        final item = Map<String, dynamic>.from(raw as Map);
-        final itemId = item['id'] as String;
-        final local = await _queryLocalRow(txn, 'password_items', itemId);
 
-        // 条目级合并
-        if (local == null || (item['updated_at'] as int) > (local['updated_at'] as int)) {
-          final accounts = (item.remove('accounts') as List?) ?? [];
+      for (final remoteSetting in rows['settings']!) {
+        final key = remoteSetting['key']?.toString();
+        if (key == null || !DatabaseService.syncableSettingKeys.contains(key)) {
+          continue;
+        }
+        final local = replaceLocal
+            ? null
+            : await _queryLocalRow(txn, 'settings', 'key', key);
+        if (replaceLocal ||
+            local == null ||
+            await _remoteWins('settings', remoteSetting, local)) {
           await txn.insert(
-            'password_items',
-            item,
+            'settings',
+            {
+              'key': key,
+              'value': remoteSetting['value']?.toString() ?? '',
+              'updated_at': _timestampOf(remoteSetting),
+            },
             conflictAlgorithm: ConflictAlgorithm.replace,
           );
-          // 远端账号整体覆盖该条目的账号
-          await txn.delete('accounts', where: 'item_id = ?', whereArgs: [itemId]);
-          await txn.delete('api_keys',
-              where: 'account_id IN (SELECT id FROM accounts WHERE item_id = ?)',
-              whereArgs: [itemId]);
-          for (final a in accounts) {
-            final acc = Map<String, dynamic>.from(a as Map);
-            final keys = (acc.remove('api_keys') as List?) ?? [];
-            await txn.insert('accounts', acc,
-                conflictAlgorithm: ConflictAlgorithm.replace);
-            for (final k in keys) {
-              await txn.insert('api_keys', Map<String, dynamic>.from(k as Map),
-                  conflictAlgorithm: ConflictAlgorithm.replace);
-            }
-          }
-          merged++;
         }
       }
     });
-    // 合并后记录远端修订号
-    final rev = remote['revision']?.toString();
-    if (rev != null) {
-      await DatabaseService.setSetting('sync_revision', rev);
+
+    final revision = snapshot['revision']?.toString();
+    if (revision != null) {
+      await DatabaseService.setSetting('sync_revision', revision);
     }
-    return merged;
+    return mergedItems;
   }
 
-  /// 按主键取单行（条目 / 文件夹共用，用于比较 updated_at 决定谁胜出）
+  /// 把 v1/v2 条目中的 accounts/api_keys 展开为 v3 的独立行集合。
+  Map<String, List<Map<String, dynamic>>> _extractRows(
+      Map<String, dynamic> snapshot) {
+    final result = <String, List<Map<String, dynamic>>>{
+      'folders': _mapRows(snapshot['folders']),
+      'password_items': <Map<String, dynamic>>[],
+      'accounts': _mapRows(snapshot['accounts']),
+      'api_keys': _mapRows(snapshot['api_keys']),
+      'settings': _mapRows(snapshot['settings']),
+    };
+    for (final rawItem in _mapRows(snapshot['items'])) {
+      final item = Map<String, dynamic>.from(rawItem);
+      final nestedAccounts = _mapRows(item.remove('accounts'));
+      result['password_items']!.add(item);
+      for (final rawAccount in nestedAccounts) {
+        final account = Map<String, dynamic>.from(rawAccount);
+        result['api_keys']!.addAll(_mapRows(account.remove('api_keys')));
+        result['accounts']!.add(account);
+      }
+    }
+    return result;
+  }
+
+  List<Map<String, dynamic>> _mapRows(Object? value) {
+    if (value is! List) return <Map<String, dynamic>>[];
+    return [
+      for (final row in value)
+        if (row is Map) Map<String, dynamic>.from(row),
+    ];
+  }
+
+  /// 跨设备导入时把快照中的逻辑明文重新加密为本机字段密文。
+  Future<Map<String, dynamic>> _prepareForLocal(
+      String table, Map<String, dynamic> remoteRow) async {
+    final row = Map<String, dynamic>.from(remoteRow);
+    if (table == 'accounts' && row.containsKey('password_plain')) {
+      final plain = row.remove('password_plain')?.toString() ?? '';
+      row['password_enc'] = await crypto.encrypt(plain);
+    } else if (table == 'api_keys' && row.containsKey('key_plain')) {
+      final plain = row.remove('key_plain')?.toString() ?? '';
+      row['key_enc'] = await crypto.encrypt(plain);
+    }
+    return row;
+  }
+
   Future<Map<String, dynamic>?> _queryLocalRow(
-      DatabaseExecutor txn, String table, String id) async {
-    final rows =
-        await txn.query(table, where: 'id = ?', whereArgs: [id], limit: 1);
-    if (rows.isEmpty) return null;
-    return rows.first;
+      DatabaseExecutor txn, String table, String keyColumn, String id) async {
+    final rows = await txn.query(
+      table,
+      where: '$keyColumn = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    return rows.isEmpty ? null : rows.first;
   }
 
-  // ================= WebDAV 传输 =================
+  /// 主要按毫秒时间比较；时间相同则比较去除本机密文差异后的规范 JSON，
+  /// 避免两台设备在同一毫秒修改时来回覆盖、无法收敛。
+  Future<bool> _remoteWins(String table, Map<String, dynamic> remote,
+      Map<String, dynamic> local) async {
+    final remoteTime = _timestampOf(remote);
+    final localTime = _timestampOf(local);
+    if (remoteTime != localTime) return remoteTime > localTime;
+    final remoteLogical = Map<String, dynamic>.from(remote);
+    final localLogical = Map<String, dynamic>.from(local);
+    if (table == 'accounts') {
+      if (!remoteLogical.containsKey('password_plain')) {
+        remoteLogical['password_plain'] = await crypto
+            .decrypt(remoteLogical.remove('password_enc')?.toString() ?? '');
+      }
+      localLogical['password_plain'] = await crypto
+          .decrypt(localLogical.remove('password_enc')?.toString() ?? '');
+    } else if (table == 'api_keys') {
+      if (!remoteLogical.containsKey('key_plain')) {
+        remoteLogical['key_plain'] = await crypto
+            .decrypt(remoteLogical.remove('key_enc')?.toString() ?? '');
+      }
+      localLogical['key_plain'] = await crypto
+          .decrypt(localLogical.remove('key_enc')?.toString() ?? '');
+    }
+    return _canonicalJson(remoteLogical)
+            .compareTo(_canonicalJson(localLogical)) >
+        0;
+  }
 
-  /// 测试连接：PROPFIND 根目录，验证地址可达性与凭据
+  int _timestampOf(Map<String, dynamic> row) {
+    final value = row['updated_at'];
+    if (value is int) return value;
+    return int.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  String _canonicalJson(Map<String, dynamic> value) {
+    final sorted = <String, dynamic>{};
+    for (final key in value.keys.toList()..sort()) {
+      sorted[key] = value[key];
+    }
+    return jsonEncode(sorted);
+  }
+
+  // ================= WebDAV 目录与传输 =================
+
+  /// 测试连接同时验证写权限；应用会在用户填写的 WebDAV 根地址下自动创建
+  /// EasyPassword 文件夹，不再要求用户提前进入网页端手工建目录。
   Future<void> testConnection(
       String baseUrl, String username, String password) async {
-    final uri = _resolveUri(baseUrl, '');
-    final client = http.Client();
-    try {
-      final req = http.Request('PROPFIND', uri);
-      req.headers.addAll({
-        ..._authHeaders(username, password),
-        'Depth': '0',
-      });
-      final resp = await client.send(req);
-      await resp.stream.drain();
-      final status = resp.statusCode;
-      // 200 或 207 Multi-Status 均为标准成功响应
-      if (status == 200 || status == 207) return;
-      if (status == 401 || status == 403) throw Exception(_authError(status));
-      throw Exception('连接失败（HTTP $status）：请检查服务器地址是否正确');
-    } finally {
-      client.close();
-    }
+    await _ensureCollection(baseUrl, username, password);
   }
 
-  /// 拉取远端快照；不存在返回 null
+  /// 拉取远端快照；文件尚不存在时返回 null。
   Future<String?> pullSnapshot(
       String baseUrl, String username, String password) async {
-    final uri = _resolveUri(baseUrl, _snapshotName);
-    final resp = await http.get(uri, headers: _authHeaders(username, password));
-    if (resp.statusCode == 404 || resp.statusCode == 405) return null;
-    if (resp.statusCode != 200) {
-      if (resp.statusCode == 401 || resp.statusCode == 403) {
-        throw Exception(_authError(resp.statusCode));
-      }
-      throw Exception('WebDAV 拉取失败: HTTP ${resp.statusCode}');
-    }
-    return resp.body;
+    return (await _pullRemote(baseUrl, username, password)).body;
   }
 
-  /// 推送加密快照（覆盖写，先落本地再推送的最后一环）
-  Future<void> pushSnapshot(
-      String baseUrl, String username, String password, String encrypted) async {
-    // 确保目录存在
+  /// 无条件推送快照，供明确选择“本地覆盖远端”的操作使用。
+  Future<void> pushSnapshot(String baseUrl, String username, String password,
+      String encrypted) async {
+    await _putRemote(baseUrl, username, password, encrypted);
+  }
+
+  Future<_RemoteSnapshot> _pullRemote(
+      String baseUrl, String username, String password) async {
     await _ensureCollection(baseUrl, username, password);
-    final uri = _resolveUri(baseUrl, _snapshotName);
-    final resp = await http.put(
-      uri,
-      headers: {
-        ..._authHeaders(username, password),
-        'Content-Type': 'application/octet-stream',
-      },
+    final uri = _resolveFileUri(baseUrl, _snapshotName);
+    final response =
+        await http.get(uri, headers: _authHeaders(username, password));
+    if (response.statusCode == 404) {
+      return const _RemoteSnapshot(body: null, etag: null);
+    }
+    if (response.statusCode != 200) {
+      if (response.statusCode == 401 || response.statusCode == 403) {
+        throw Exception(_authError(response.statusCode));
+      }
+      throw Exception('WebDAV 拉取失败（HTTP ${response.statusCode}）');
+    }
+    return _RemoteSnapshot(
+      body: response.body,
+      etag: response.headers['etag'],
+    );
+  }
+
+  /// 条件 PUT 用 ETag 保护“拉取—合并—推送”窗口；若其他设备抢先写入，
+  /// 调用方会重新拉取合并，而不是覆盖掉对方刚上传的数据。
+  Future<void> _putRemote(
+    String baseUrl,
+    String username,
+    String password,
+    String encrypted, {
+    String? expectedEtag,
+    bool onlyIfMissing = false,
+  }) async {
+    await _ensureCollection(baseUrl, username, password);
+    final headers = <String, String>{
+      ..._authHeaders(username, password),
+      'Content-Type': 'application/octet-stream',
+      if (expectedEtag != null) 'If-Match': expectedEtag,
+      if (onlyIfMissing) 'If-None-Match': '*',
+    };
+    final response = await http.put(
+      _resolveFileUri(baseUrl, _snapshotName),
+      headers: headers,
       body: encrypted,
     );
-    if (resp.statusCode >= 300) {
-      throw Exception(_pushError(resp.statusCode));
+    if (response.statusCode == 412) throw const _RemoteChangedException();
+    if (response.statusCode >= 300) {
+      throw Exception(_pushError(response.statusCode));
     }
   }
 
-  /// 确保远端目录存在：先 PROPFIND 检查每一级是否已存在，
-  /// 已存在则跳过 MKCOL（治本：坚果云对已存在路径 MKCOL 仍返 403，
-  /// 用户按提示在网页端建好子目录后，不应再触发写入操作）。
+  /// 只创建应用自己的一级目录，绝不尝试 MKCOL WebDAV 服务路径本身
+  /// （例如坚果云 /dav/），从根因上避免对服务根目录误操作导致 403。
   Future<void> _ensureCollection(
       String baseUrl, String username, String password) async {
-    final uri = _resolveUri(baseUrl, '');
-    final segments = uri.pathSegments.where((s) => s.isNotEmpty).toList();
-    for (var i = 1; i <= segments.length; i++) {
-      final dirUri = uri.replace(pathSegments: segments.take(i).toList());
-      // 先探测目录是否存在；存在则直接跳过
-      if (await _directoryExists(dirUri, username, password)) {
-        continue;
-      }
-      // 不存在再尝试 MKCOL 创建
-      final status = await _mkcol(dirUri, username, password);
-      // 401 才是认证失败；403 在坚果云上通常是"操作被拒"
-      if (status == 401) {
-        throw Exception(_authError(status));
-      }
-      if (status == 403) {
-        throw Exception(_writeForbiddenError(status));
-      }
-      // 2xx 创建成功；3xx/405 已存在；其余视为无法创建
-      final ok = (status >= 200 && status < 400) || status == 405;
-      if (!ok) {
-        throw Exception(
-            'WebDAV 目录创建失败（HTTP $status）：请检查服务器地址是否正确'
-            '（坚果云形如 https://dav.jianguoyun.com/dav/），'
-            '或先在服务端手动创建该目录');
-      }
+    final collection = _collectionUri(baseUrl);
+    final currentStatus = await _propfindStatus(collection, username, password);
+    if (currentStatus == 200 || currentStatus == 207) return;
+    if (currentStatus == 401) throw Exception(_authError(currentStatus));
+    if (currentStatus == 403) {
+      throw Exception(_writeForbiddenError(currentStatus));
+    }
+    if (currentStatus != 404) {
+      throw Exception('WebDAV 连接失败（HTTP $currentStatus）：请检查根地址');
+    }
+
+    final parent = _parentUri(collection);
+    final parentStatus = await _propfindStatus(parent, username, password);
+    if (parentStatus == 401 || parentStatus == 403) {
+      throw Exception(_authError(parentStatus));
+    }
+    if (parentStatus != 200 && parentStatus != 207) {
+      throw Exception('WebDAV 根地址不存在（HTTP $parentStatus），请检查服务器地址');
+    }
+
+    final createStatus = await _mkcol(collection, username, password);
+    if (createStatus == 401) throw Exception(_authError(createStatus));
+    if (createStatus == 403) {
+      throw Exception(_writeForbiddenError(createStatus));
+    }
+    final created =
+        (createStatus >= 200 && createStatus < 300) || createStatus == 405;
+    if (!created) {
+      throw Exception('自动创建 $_collectionName 文件夹失败（HTTP $createStatus）：'
+          '请确认 WebDAV 账号拥有写入权限');
     }
   }
 
-  /// 用 PROPFIND depth=0 探测目录是否存在：坚果云等标准 WebDAV 对已存在目录
-  /// 返回 207 Multi-Status，对不存在返回 404，对认证失败返回 401。
-  Future<bool> _directoryExists(
-      Uri uri, String username, String password) async {
+  Future<int> _propfindStatus(Uri uri, String username, String password) async {
     final client = http.Client();
     try {
-      final req = http.Request('PROPFIND', uri);
-      req.headers.addAll({
+      final request = http.Request('PROPFIND', uri);
+      request.headers.addAll({
         ..._authHeaders(username, password),
         'Depth': '0',
       });
-      final resp = await client.send(req);
-      await resp.stream.drain();
-      final s = resp.statusCode;
-      return s == 200 || s == 207;
+      final response = await client.send(request);
+      await response.stream.drain();
+      return response.statusCode;
     } finally {
       client.close();
     }
@@ -253,28 +452,22 @@ class WebDavService {
   Future<int> _mkcol(Uri uri, String username, String password) async {
     final client = http.Client();
     try {
-      final req = http.Request('MKCOL', uri);
-      req.headers.addAll(_authHeaders(username, password));
-      final resp = await client.send(req);
-      await resp.stream.drain();
-      return resp.statusCode;
+      final request = http.Request('MKCOL', uri);
+      request.headers.addAll(_authHeaders(username, password));
+      final response = await client.send(request);
+      await response.stream.drain();
+      return response.statusCode;
     } finally {
       client.close();
     }
   }
 
   String _authError(int status) =>
-      'WebDAV 认证失败（HTTP $status）：请检查用户名与密码，坚果云需使用「应用密码」';
+      'WebDAV 认证失败（HTTP $status）：请检查用户名与密码，坚果云需使用应用密码';
 
-  /// 写操作被拒（403）：与认证失败不同——PROPFIND 通过说明凭据有效，
-  /// 403 通常是路径不允许写入（如坚果云根目录 /dav/ 下需手动建子目录）
-  /// 或应用密码未授予写权限。
   String _writeForbiddenError(int status) =>
-      'WebDAV 操作被拒（HTTP $status）：服务器拒绝了写入操作。'
-      '请检查：'
-      '① WebDAV 路径下是否需要先手动建立子目录（坚果云需在 dav.jianguoyun.com/dav/ '
-      '下手动新建子文件夹，并把"服务器地址"填为 https://dav.jianguoyun.com/dav/<子目录>/）；'
-      '② 应用密码是否已授予写入权限（坚果云应用密码生成时可勾选权限）';
+      'WebDAV 写入被拒（HTTP $status）：应用已尝试自动创建 $_collectionName 文件夹，'
+      '请确认当前账号对该根地址具有新建文件夹和上传文件权限';
 
   String _pushError(int status) {
     switch (status) {
@@ -283,40 +476,137 @@ class WebDavService {
       case 403:
         return _writeForbiddenError(status);
       case 404:
-        return 'WebDAV 推送失败（HTTP 404）：远端目录不存在或服务器地址有误，'
-            '请确认地址包含正确的 WebDAV 路径'
-            '（坚果云形如 https://dav.jianguoyun.com/dav/），'
-            '或在服务端手动创建该目录';
       case 409:
-        return 'WebDAV 推送失败（HTTP 409）：远端目录不存在，无法写入快照文件';
+        return 'WebDAV 写入路径不存在（HTTP $status），请检查服务器根地址';
       default:
-        return 'WebDAV 推送失败: HTTP $status';
+        return 'WebDAV 推送失败（HTTP $status）';
     }
   }
 
-  Map<String, String> _authHeaders(String username, String password) {
-    return {
-      'Authorization':
-          'Basic ${base64Encode(utf8.encode('$username:$password'))}',
-    };
-  }
+  Map<String, String> _authHeaders(String username, String password) => {
+        'Authorization':
+            'Basic ${base64Encode(utf8.encode('$username:$password'))}',
+      };
 
-  Uri _resolveUri(String baseUrl, String fileName) {
-    var base = baseUrl.endsWith('/') ? baseUrl : '$baseUrl/';
-    return Uri.parse('$base$fileName');
-  }
-
-  /// 一键同步：拉取 → 合并落本地 → 推送（需求 4.1）
-  Future<SyncSummary> syncAll(String baseUrl, String username, String password) async {
-    final remote = await pullSnapshot(baseUrl, username, password);
-    var merged = 0;
-    if (remote != null) {
-      merged = await mergeSnapshot(remote);
+  /// 兼容旧配置：若用户已经填写到 /EasyPassword/，直接沿用；否则只在
+  /// 所填根地址后追加该目录。统一补尾斜杠，保证各设备派生相同同步密钥。
+  Uri _collectionUri(String baseUrl) {
+    final uri = Uri.tryParse(baseUrl.trim());
+    if (uri == null ||
+        !const {'http', 'https'}.contains(uri.scheme.toLowerCase()) ||
+        uri.host.isEmpty) {
+      throw Exception('WebDAV 地址格式无效，请填写完整的 http(s) 地址');
     }
-    // 先落本地已完成（merge 写库），再推送
-    final snapshot = await buildSnapshot();
+    var path = uri.path;
+    if (!path.endsWith('/')) path = '$path/';
+    final segments = path.split('/').where((part) => part.isNotEmpty).toList();
+    if (segments.isEmpty ||
+        segments.last.toLowerCase() != _collectionName.toLowerCase()) {
+      path = '$path$_collectionName/';
+    }
+    return uri.replace(path: path);
+  }
+
+  Uri _parentUri(Uri collection) {
+    final segments =
+        collection.pathSegments.where((part) => part.isNotEmpty).toList();
+    if (segments.isNotEmpty) segments.removeLast();
+    final path = segments.isEmpty ? '/' : '/${segments.join('/')}/';
+    return collection.replace(path: path);
+  }
+
+  Uri _resolveFileUri(String baseUrl, String fileName) {
+    final collection = _collectionUri(baseUrl);
+    return collection.replace(path: '${collection.path}$fileName');
+  }
+
+  String _syncIdentity(String baseUrl) {
+    final uri = _collectionUri(baseUrl);
+    return uri
+        .replace(
+          scheme: uri.scheme.toLowerCase(),
+          host: uri.host.toLowerCase(),
+          fragment: '',
+        )
+        .toString();
+  }
+
+  String _syncSecret(String username, String password) =>
+      '$username\u0000$password';
+
+  // ================= 三种用户同步模式 =================
+
+  /// 本地覆盖远端：明确的强制上传，不拉取也不合并。
+  Future<SyncSummary> overwriteRemote(
+      String baseUrl, String username, String password) async {
+    final highWaterMark = await DatabaseService.getSyncJournalHighWaterMark();
+    final snapshot = await buildSnapshot(
+      baseUrl: baseUrl,
+      username: username,
+      password: password,
+    );
     await pushSnapshot(baseUrl, username, password, snapshot);
-    return SyncSummary(merged: merged, pushed: true);
+    await DatabaseService.clearSyncJournalThrough(highWaterMark);
+    return const SyncSummary(merged: 0, pushed: true);
+  }
+
+  /// 远端覆盖本地：明确的强制下载；远端不存在时拒绝清空本地。
+  Future<SyncSummary> overwriteLocal(
+      String baseUrl, String username, String password) async {
+    final remote = await _pullRemote(baseUrl, username, password);
+    if (remote.body == null) {
+      throw Exception('远端还没有同步快照，不能覆盖本地数据');
+    }
+    final merged = await replaceLocalSnapshot(
+      remote.body!,
+      baseUrl: baseUrl,
+      username: username,
+      password: password,
+    );
+    final highWaterMark = await DatabaseService.getSyncJournalHighWaterMark();
+    await DatabaseService.clearSyncJournalThrough(highWaterMark);
+    return SyncSummary(merged: merged, pushed: false);
+  }
+
+  /// 自动同步：远端与本地逐行合并后推送。遇到 ETag 冲突最多重试三次，
+  /// 覆盖正常网络抖动和多台设备几乎同时同步的场景。
+  Future<SyncSummary> syncAll(
+      String baseUrl, String username, String password) async {
+    var merged = 0;
+    for (var attempt = 0; attempt < 3; attempt++) {
+      final remote = await _pullRemote(baseUrl, username, password);
+      if (remote.body != null) {
+        merged += await mergeSnapshot(
+          remote.body!,
+          baseUrl: baseUrl,
+          username: username,
+          password: password,
+        );
+      }
+      final highWaterMark = await DatabaseService.getSyncJournalHighWaterMark();
+      final snapshot = await buildSnapshot(
+        baseUrl: baseUrl,
+        username: username,
+        password: password,
+      );
+      try {
+        await _putRemote(
+          baseUrl,
+          username,
+          password,
+          snapshot,
+          expectedEtag: remote.etag,
+          onlyIfMissing: remote.body == null,
+        );
+        await DatabaseService.clearSyncJournalThrough(highWaterMark);
+        return SyncSummary(merged: merged, pushed: true);
+      } on _RemoteChangedException {
+        if (attempt == 2) {
+          throw Exception('远端正在被其他设备更新，请稍后重试');
+        }
+      }
+    }
+    throw Exception('自动同步未完成，请稍后重试');
   }
 }
 
@@ -324,4 +614,14 @@ class SyncSummary {
   final int merged;
   final bool pushed;
   const SyncSummary({required this.merged, required this.pushed});
+}
+
+class _RemoteSnapshot {
+  final String? body;
+  final String? etag;
+  const _RemoteSnapshot({required this.body, required this.etag});
+}
+
+class _RemoteChangedException implements Exception {
+  const _RemoteChangedException();
 }

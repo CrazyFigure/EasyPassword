@@ -2,6 +2,7 @@
 /// 密码区(type=password)与 API Key 区(type=apikey)共用一套服务，按 type 物理分离
 library;
 
+import 'dart:async';
 import 'dart:math';
 
 import '../models/account.dart';
@@ -15,8 +16,16 @@ class DataService {
   final CryptoService crypto;
   DataService(this.crypto);
 
-  static const _chars =
-      'abcdefghijklmnopqrstuvwxyz0123456789';
+  /// 数据成功落库后的通知入口，由 AppState 接入防抖自动同步。
+  /// 回调不阻塞当前保存操作，断网时用户仍可继续编辑，由后续定时任务重试。
+  Future<void> Function()? onChanged;
+
+  void _notifyChanged() {
+    final callback = onChanged;
+    if (callback != null) unawaited(callback());
+  }
+
+  static const _chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
 
   /// 生成唯一短 ID
   static String genId() {
@@ -96,6 +105,7 @@ class DataService {
       updatedAt: now,
     );
     await db.insert('password_items', item.toMap());
+    _notifyChanged();
     return item;
   }
 
@@ -108,6 +118,7 @@ class DataService {
       where: 'id = ?',
       whereArgs: [item.id],
     );
+    _notifyChanged();
   }
 
   /// 软删除条目（连同其账号与 key 一并软删）
@@ -133,6 +144,7 @@ class DataService {
         );
       }
     });
+    _notifyChanged();
   }
 
   /// 批量软删除条目（需求 3.4）
@@ -153,6 +165,7 @@ class DataService {
         );
       }
     });
+    _notifyChanged();
   }
 
   /// 同一层级内的下一个排序号。
@@ -211,6 +224,7 @@ class DataService {
       updatedAt: now,
     );
     await db.insert('folders', folder.toMap());
+    _notifyChanged();
     return folder;
   }
 
@@ -223,6 +237,7 @@ class DataService {
       where: 'id = ?',
       whereArgs: [folder.id],
     );
+    _notifyChanged();
   }
 
   /// 软删除文件夹。
@@ -253,6 +268,7 @@ class DataService {
       'UPDATE folders SET deleted = 1, updated_at = ? WHERE id = ?',
       [now, id],
     );
+    _notifyChanged();
   }
 
   /// 把条目移动到指定文件夹；[folderId] 为 null 表示移出到根目录
@@ -270,6 +286,7 @@ class DataService {
         );
       }
     });
+    _notifyChanged();
   }
 
   /// 根列表混合拖动排序：文件夹与条目共用一套序号，可任意交叉排列。
@@ -289,6 +306,7 @@ class DataService {
         );
       }
     });
+    _notifyChanged();
   }
 
   /// 统计文件夹内条目数（列表上展示"N 项"）
@@ -368,6 +386,7 @@ class DataService {
       updatedAt: now,
     );
     await db.insert('accounts', acc.toMap());
+    _notifyChanged();
     return acc;
   }
 
@@ -376,7 +395,8 @@ class DataService {
     final db = await DatabaseService.db;
     var updated = acc;
     if (newPassword != null && newPassword.isNotEmpty) {
-      updated = updated.copyWith(passwordEnc: await crypto.encrypt(newPassword));
+      updated =
+          updated.copyWith(passwordEnc: await crypto.encrypt(newPassword));
     }
     await db.update(
       'accounts',
@@ -384,6 +404,7 @@ class DataService {
       where: 'id = ?',
       whereArgs: [acc.id],
     );
+    _notifyChanged();
   }
 
   Future<void> deleteAccount(String id) async {
@@ -399,6 +420,7 @@ class DataService {
         [now, id],
       );
     });
+    _notifyChanged();
   }
 
   /// 账号内拖动排序
@@ -412,6 +434,7 @@ class DataService {
         );
       }
     });
+    _notifyChanged();
   }
 
   Future<int> _nextAccountOrder(String itemId) async {
@@ -456,6 +479,7 @@ class DataService {
       updatedAt: now,
     );
     await db.insert('api_keys', k.toMap());
+    _notifyChanged();
     return k;
   }
 
@@ -472,6 +496,7 @@ class DataService {
       where: 'id = ?',
       whereArgs: [k.id],
     );
+    _notifyChanged();
   }
 
   Future<void> deleteApiKey(String id) async {
@@ -480,6 +505,7 @@ class DataService {
       'UPDATE api_keys SET deleted = 1, updated_at = ? WHERE id = ?',
       [DateTime.now().millisecondsSinceEpoch, id],
     );
+    _notifyChanged();
   }
 
   /// 账号内 API Key 拖动排序
@@ -493,6 +519,7 @@ class DataService {
         );
       }
     });
+    _notifyChanged();
   }
 
   Future<int> _nextKeyOrder(String accountId) async {
