@@ -1,4 +1,4 @@
-/// 数据库迁移测试：v1 老库升级到 v2（新增 folders 表与 folder_id 列）
+/// 数据库迁移测试：覆盖历史结构升级、数据保留与同步触发器刷新。
 library;
 
 import 'package:easypassword/services/crypto_service.dart';
@@ -67,13 +67,15 @@ void main() {
   test('v1 老库升级到最新版后原有数据完好且可用文件夹', () async {
     // 用磁盘上的临时库文件，才能先关闭再以新版本重新打开
     final dir = await databaseFactory.getDatabasesPath();
-    final path = '$dir/migration_test_${DateTime.now().microsecondsSinceEpoch}.db';
+    final path =
+        '$dir/migration_test_${DateTime.now().microsecondsSinceEpoch}.db';
     await databaseFactory.deleteDatabase(path);
 
     // 1) 建 v1 库并写入一条老数据
     final v1 = await databaseFactory.openDatabase(
       path,
-      options: OpenDatabaseOptions(version: 1, onCreate: (db, _) => _createV1Schema(db)),
+      options: OpenDatabaseOptions(
+          version: 1, onCreate: (db, _) => _createV1Schema(db)),
     );
     final now = DateTime.now().millisecondsSinceEpoch;
     await v1.insert('password_items', {
@@ -130,8 +132,8 @@ void main() {
         version: 2,
         onCreate: (db, _) async {
           await _createV1Schema(db);
-          await db.execute(
-              'ALTER TABLE password_items ADD COLUMN folder_id TEXT');
+          await db
+              .execute('ALTER TABLE password_items ADD COLUMN folder_id TEXT');
           await db.execute('''
             CREATE TABLE folders (
               id TEXT PRIMARY KEY,
@@ -188,6 +190,55 @@ void main() {
     // 3) 升级后可给老文件夹设置颜色
     await data.updateFolder(folders.first.copyWith(color: 0xFFE57373));
     expect((await data.listFolders('password')).first.color, 0xFFE57373);
+
+    await DatabaseService.resetForTest();
+    DatabaseService.overridePath = null;
+    await databaseFactory.deleteDatabase(path);
+  });
+
+  test('v4 升级后分区排序设置会进入同步日志', () async {
+    final dir = await databaseFactory.getDatabasesPath();
+    final path =
+        '$dir/migration_v4_${DateTime.now().microsecondsSinceEpoch}.db';
+    await databaseFactory.deleteDatabase(path);
+
+    // 先由当前版本创建完整结构，再还原 v4 的旧设置触发器与版本号。
+    DatabaseService.overridePath = path;
+    await DatabaseService.resetForTest();
+    final v4 = await DatabaseService.db;
+    await v4.execute('DROP TRIGGER sync_settings_insert');
+    await v4.execute('DROP TRIGGER sync_settings_update');
+    await v4.execute('''
+      CREATE TRIGGER sync_settings_insert
+      AFTER INSERT ON settings
+      WHEN NEW.key IN ('sort_mode')
+      BEGIN
+        INSERT INTO sync_journal(entity_type, entity_id, operation, changed_at)
+        VALUES ('settings', NEW.key, 'upsert', NEW.updated_at);
+      END
+    ''');
+    await v4.execute('''
+      CREATE TRIGGER sync_settings_update
+      AFTER UPDATE ON settings
+      WHEN NEW.key IN ('sort_mode')
+      BEGIN
+        INSERT INTO sync_journal(entity_type, entity_id, operation, changed_at)
+        VALUES ('settings', NEW.key, 'upsert', NEW.updated_at);
+      END
+    ''');
+    await v4.setVersion(4);
+    await DatabaseService.resetForTest();
+
+    // 重新打开触发 v4 → v5；新分区键必须由重建后的触发器记录。
+    final upgraded = await DatabaseService.db;
+    await upgraded.delete('sync_journal');
+    await DatabaseService.setSetting('sort_mode_password', 'custom');
+    final rows = await upgraded.query(
+      'sync_journal',
+      where: 'entity_type = ? AND entity_id = ?',
+      whereArgs: ['settings', 'sort_mode_password'],
+    );
+    expect(rows, hasLength(1));
 
     await DatabaseService.resetForTest();
     DatabaseService.overridePath = null;

@@ -105,12 +105,6 @@ class _FontSizeSettingPageState extends State<FontSizeSettingPage> {
             : ListView(
                 padding: const EdgeInsets.all(20),
                 children: [
-                  const _SectionTitle('字体大小'),
-                  const SizedBox(height: 10),
-                  _buildSizeOptions(),
-                  const SizedBox(height: 20),
-                  _buildPreview(),
-                  const SizedBox(height: 24),
                   const _SectionTitle('字体'),
                   const SizedBox(height: 10),
                   _buildFontPicker(),
@@ -122,6 +116,12 @@ class _FontSizeSettingPageState extends State<FontSizeSettingPage> {
                       color: AppColors.textWeak,
                     ),
                   ),
+                  const SizedBox(height: 24),
+                  const _SectionTitle('字体大小'),
+                  const SizedBox(height: 10),
+                  _buildSizeOptions(),
+                  const SizedBox(height: 20),
+                  _buildPreview(),
                   const SizedBox(height: 28),
                   Row(
                     children: [

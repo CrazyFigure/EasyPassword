@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../../core/constants.dart';
 import '../../services/webdav_service.dart';
 import '../../state/app_state.dart';
+import '../common/app_menu.dart';
 import '../common/confirm_dialog.dart';
 import '../common/secret_text_field.dart';
 
@@ -362,21 +363,18 @@ class _WebDavSetupPageState extends State<WebDavSetupPage> {
                 const Icon(Icons.schedule_outlined, color: AppColors.primary),
             title: const Text('定时同步'),
             subtitle: const Text('应用运行期间定期拉取其他设备的修改'),
-            trailing: DropdownButton<int>(
+            // 同步间隔与默认主页共用同一款锚点式下拉，保留禁用态反馈。
+            trailing: AppMenuPicker<int>(
               value: state.autoSyncIntervalMinutes,
-              underline: const SizedBox.shrink(),
-              onChanged: !state.autoSyncEnabled || busy
-                  ? null
-                  : (minutes) {
-                      if (minutes != null) {
-                        state.updateAutoSync(enabled: true, minutes: minutes);
-                      }
-                    },
+              enabled: state.autoSyncEnabled && !busy,
+              menuWidth: 150,
+              onChanged: (minutes) =>
+                  state.updateAutoSync(enabled: true, minutes: minutes),
               items: const [
-                DropdownMenuItem(value: 5, child: Text('5 分钟')),
-                DropdownMenuItem(value: 15, child: Text('15 分钟')),
-                DropdownMenuItem(value: 30, child: Text('30 分钟')),
-                DropdownMenuItem(value: 60, child: Text('60 分钟')),
+                AppMenuItem(value: 5, label: '5 分钟'),
+                AppMenuItem(value: 15, label: '15 分钟'),
+                AppMenuItem(value: 30, label: '30 分钟'),
+                AppMenuItem(value: 60, label: '60 分钟'),
               ],
             ),
           ),

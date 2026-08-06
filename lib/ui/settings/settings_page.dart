@@ -1,4 +1,4 @@
-/// 设置页：应用锁 / 字体大小 / 底部栏自定义 / WebDAV 同步 / 关于
+/// 设置页：应用锁 / 字体 / 底部栏自定义 / WebDAV 同步 / 关于
 /// （需求 3.5.1 - 3.5.5）
 library;
 
@@ -108,17 +108,10 @@ class SettingsPage extends StatelessWidget {
         // ===== 关于 =====
         const _SectionLabel('关于'),
         _SettingsCard(children: [
-          const _ActionTile(
-            icon: Icons.info_outline,
-            title: '版本',
-            subtitle:
-                'EasyPassword v${AppInfo.currentVersion} · Android + Windows',
-          ),
-          const _Divider(),
           _ActionTile(
             icon: Icons.system_update_alt,
-            title: '检测更新',
-            subtitle: '检查 GitHub 上是否有新版本',
+            title: '版本与更新',
+            subtitle: 'EasyPassword v${AppInfo.currentVersion} · 点击检测更新',
             onTap: () => showUpdateCheckDialog(context),
           ),
           const _Divider(),

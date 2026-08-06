@@ -60,7 +60,10 @@ class DbKeys {
   static const String webdavUser = 'webdav_username';
   static const String webdavPass = 'webdav_password';
   static const String syncRevision = 'sync_revision';
-  static const String sortMode = 'sort_mode'; // 'name_asc' | 'custom'
+  // 旧版共用排序键仅用于升级兼容；新版按密码/API Key 分区独立保存。
+  static const String sortMode = 'sort_mode';
+  static const String passwordSortMode = 'sort_mode_password';
+  static const String apikeySortMode = 'sort_mode_apikey';
   static const String defaultTab = 'default_tab';
   static const String deviceKey = 'device_key'; // 无应用锁时的本地密钥
   static const String tabVisibility = 'tab_visibility'; // json: 底部栏开关与顺序

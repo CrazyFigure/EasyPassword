@@ -40,7 +40,7 @@ class _ItemListViewState extends State<ItemListView> {
     final state = context.watch<AppState>();
     // 文件夹与条目合并为统一的行序列，排序规则见 AppState.rootEntries
     final entries = state.rootEntries(widget.type);
-    final customSort = state.sortMode == 'custom';
+    final customSort = state.sortModeFor(widget.type) == 'custom';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -74,7 +74,7 @@ class _ItemListViewState extends State<ItemListView> {
             onPressed: () => state.setTab('search'),
           ),
           // 排序按钮（需求 3.5.5）
-          const _SortMenuButton(),
+          _SortMenuButton(type: widget.type),
           // 设置入口
           IconButton(
             icon:
@@ -559,20 +559,46 @@ class _FolderCard extends StatelessWidget {
 /// 排序方式入口：点击后在按钮下方弹出轻量下拉菜单
 /// （原先是居中大弹窗，对"选一个排序方式"这种小操作过重）
 class _SortMenuButton extends StatelessWidget {
-  const _SortMenuButton();
+  final String type;
+
+  const _SortMenuButton({required this.type});
 
   @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
+    // 排序图标、底色与轮廓都随当前模式变化，不展开菜单也能识别排序规则。
+    final sortMode = state.sortModeFor(type);
+    final customSort = sortMode == 'custom';
     // 用 Builder 取到 IconButton 自身的 context，菜单才能对齐到按钮位置
     return Builder(
       builder: (btnContext) => IconButton(
-        icon: const Icon(Icons.sort, color: AppColors.textMain),
-        tooltip: '排序',
+        icon: Icon(
+          customSort
+              ? Icons.drag_indicator_rounded
+              : Icons.sort_by_alpha_rounded,
+        ),
+        tooltip: customSort ? '当前：自定义排序' : '当前：按名称升序',
+        style: IconButton.styleFrom(
+          foregroundColor:
+              customSort ? AppColors.primaryDark : AppColors.textMain,
+          backgroundColor: customSort ? AppColors.primaryLight : Colors.white,
+          hoverColor: AppColors.primary.withValues(alpha: 0.10),
+          highlightColor: AppColors.primary.withValues(alpha: 0.16),
+          shape: customSort
+              ? RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  side: BorderSide(
+                    color: AppColors.primary.withValues(alpha: 0.28),
+                  ),
+                )
+              : const CircleBorder(
+                  side: BorderSide(color: AppColors.border),
+                ),
+        ),
         onPressed: () async {
           final choice = await showAppMenu<String>(
             anchorContext: btnContext,
-            selected: state.sortMode,
+            selected: sortMode,
             width: 230,
             items: const [
               AppMenuItem(
@@ -589,10 +615,8 @@ class _SortMenuButton extends StatelessWidget {
               ),
             ],
           );
-          if (choice != null &&
-              choice != state.sortMode &&
-              btnContext.mounted) {
-            await btnContext.read<AppState>().updateSortMode(choice);
+          if (choice != null && choice != sortMode && btnContext.mounted) {
+            await btnContext.read<AppState>().updateSortMode(type, choice);
           }
         },
       ),
