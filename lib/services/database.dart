@@ -14,14 +14,18 @@ class DatabaseService {
   // v2：新增 folders 表与 password_items.folder_id（文件夹分组）
   // v3：folders 新增 color 列（文件夹自定义颜色）
   // v4：设置补修改时间，并用同步日志持久记录离线期间的每次数据变更
-  static const int _version = 4;
+  // v5：排序设置按密码/API Key 分区，并刷新设置同步触发器的键范围
+  static const int _version = 5;
 
   /// 可跨设备同步的系统设置。WebDAV 凭据、设备数据密钥和同步运行状态
   /// 必须留在本机，避免远端配置覆盖后导致设备失去访问能力。
   static const Set<String> syncableSettingKeys = {
     'font_scale',
     'tab_visibility',
+    // 保留旧键用于接收旧设备快照；两个新键分别同步各分区的排序规则。
     'sort_mode',
+    'sort_mode_password',
+    'sort_mode_apikey',
     'reveal_all',
     'app_lock_enabled',
     'app_lock_pin_hash',
@@ -150,7 +154,8 @@ class DatabaseService {
   /// v1 → v2：补齐 folders 表与 password_items.folder_id 列，已有数据
   ///          folder_id 保持 NULL（全部落在根目录），不影响现有条目。
   /// v2 → v3：folders 补 color 列，NULL 表示沿用主题默认色；
-  /// v3 → v4：设置补修改时间，并建立同步变更日志与自动记录触发器。
+  /// v3 → v4：设置补修改时间，并建立同步变更日志与自动记录触发器；
+  /// v4 → v5：刷新设置触发器，使两个分区排序键都能记录同步日志。
   static Future<void> _onUpgrade(
       Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
@@ -165,6 +170,9 @@ class DatabaseService {
       await db.execute(
           'ALTER TABLE settings ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0');
       await _createSyncJournalSchema(db);
+    }
+    if (oldVersion >= 4 && oldVersion < 5) {
+      await _recreateSyncSettingTriggers(db);
     }
   }
 
@@ -207,9 +215,17 @@ class DatabaseService {
         END
       ''');
     }
+    await _recreateSyncSettingTriggers(db);
+  }
+
+  /// 重建设置同步触发器。SQLite 的 CREATE TRIGGER IF NOT EXISTS 不会更新
+  /// 既有 WHEN 条件，因此新增可同步设置键时必须先删除旧触发器再创建。
+  static Future<void> _recreateSyncSettingTriggers(Database db) async {
+    await db.execute('DROP TRIGGER IF EXISTS sync_settings_insert');
+    await db.execute('DROP TRIGGER IF EXISTS sync_settings_update');
     final settingKeys = syncableSettingKeys.map((key) => "'$key'").join(',');
     await db.execute('''
-      CREATE TRIGGER IF NOT EXISTS sync_settings_insert
+      CREATE TRIGGER sync_settings_insert
       AFTER INSERT ON settings
       WHEN NEW.key IN ($settingKeys)
       BEGIN
@@ -218,7 +234,7 @@ class DatabaseService {
       END
     ''');
     await db.execute('''
-      CREATE TRIGGER IF NOT EXISTS sync_settings_update
+      CREATE TRIGGER sync_settings_update
       AFTER UPDATE ON settings
       WHEN NEW.key IN ($settingKeys)
       BEGIN

@@ -6,9 +6,9 @@ import 'package:flutter/material.dart';
 
 import '../../core/constants.dart';
 
-/// 整行长按拖动的触发时长。250ms 足以区分普通点击，同时比 Flutter 默认
-/// kLongPressTimeout（500ms）更利落；拖动把手仍保持按下即拖。
-const Duration _quickDragDelay = Duration(milliseconds: 250);
+/// 整行长按拖动的触发时长。150ms 用于快速进入排序，同时仍保留短按打开条目；
+/// 拖动把手继续保持按下即拖。
+const Duration _quickDragDelay = Duration(milliseconds: 150);
 
 /// 可调延迟的整行拖动监听器。
 ///

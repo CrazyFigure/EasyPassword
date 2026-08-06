@@ -32,7 +32,9 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   bool appLockEnabled = false; // 应用锁配置是否开启（同步缓存）
   FontSizeMode fontSizeMode = FontSizeMode.system; // system 保留平台文字缩放
   String? fontFamily; // null 使用 Windows/Android 平台默认系统字体
-  String sortMode = 'name_asc'; // 排序模式：name_asc | custom
+  // 两类条目独立缓存排序模式，避免在一个分区切换后影响另一个分区。
+  String passwordSortMode = 'name_asc';
+  String apikeySortMode = 'name_asc';
   String currentTab = 'password';
   List<PasswordItem> passwordItems = [];
   List<PasswordItem> apikeyItems = [];
@@ -79,7 +81,8 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     revealAll = await settings.getRevealAll();
     fontSizeMode = await settings.getFontSizeMode();
     fontFamily = await settings.getFontFamily();
-    sortMode = await settings.getSortMode();
+    passwordSortMode = await settings.getSortMode(ItemType.password);
+    apikeySortMode = await settings.getSortMode(ItemType.apikey);
     autoSyncEnabled = await settings.getAutoSyncEnabled();
     autoSyncIntervalMinutes = await settings.getAutoSyncIntervalMinutes();
     final lastSyncValue = await DatabaseService.getSetting('sync_last_success');
@@ -111,10 +114,24 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
   }
 
-  /// 更新排序模式并刷新列表
-  Future<void> updateSortMode(String mode) async {
-    sortMode = mode;
-    await settings.setSortMode(mode);
+  /// 获取指定分区当前排序模式；调用方统一走这里，避免误用另一分区状态。
+  String sortModeFor(String type) => switch (type) {
+        ItemType.password => passwordSortMode,
+        ItemType.apikey => apikeySortMode,
+        _ => throw ArgumentError.value(type, 'type', '未知的条目类型'),
+      };
+
+  /// 仅更新指定分区排序模式并刷新两类缓存，确保返回列表页时状态一致。
+  Future<void> updateSortMode(String type, String mode) async {
+    switch (type) {
+      case ItemType.password:
+        passwordSortMode = mode;
+      case ItemType.apikey:
+        apikeySortMode = mode;
+      default:
+        throw ArgumentError.value(type, 'type', '未知的条目类型');
+    }
+    await settings.setSortMode(type, mode);
     await refresh();
   }
 
@@ -141,18 +158,21 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
 
   /// 重新加载根目录列表与文件夹（文件夹内条目由文件夹页自行加载）
   Future<void> refresh() async {
-    final byName = sortMode != 'custom';
-    if (byName) {
-      passwordItems = await data.listItemsByName('password');
-      apikeyItems = await data.listItemsByName('apikey');
-      passwordFolders = await data.listFoldersByName('password');
-      apikeyFolders = await data.listFoldersByName('apikey');
-    } else {
-      passwordItems = await data.listItems('password');
-      apikeyItems = await data.listItems('apikey');
-      passwordFolders = await data.listFolders('password');
-      apikeyFolders = await data.listFolders('apikey');
-    }
+    // 两个分区分别选择查询顺序，允许密码按名称、API Key 按自定义顺序展示。
+    final passwordByName = passwordSortMode != 'custom';
+    final apikeyByName = apikeySortMode != 'custom';
+    passwordItems = passwordByName
+        ? await data.listItemsByName(ItemType.password)
+        : await data.listItems(ItemType.password);
+    passwordFolders = passwordByName
+        ? await data.listFoldersByName(ItemType.password)
+        : await data.listFolders(ItemType.password);
+    apikeyItems = apikeyByName
+        ? await data.listItemsByName(ItemType.apikey)
+        : await data.listItems(ItemType.apikey);
+    apikeyFolders = apikeyByName
+        ? await data.listFoldersByName(ItemType.apikey)
+        : await data.listFolders(ItemType.apikey);
     folderCounts = {
       ...await data.countItemsByFolder('password'),
       ...await data.countItemsByFolder('apikey'),
@@ -168,7 +188,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     final isApi = type == ItemType.apikey;
     final folders = isApi ? apikeyFolders : passwordFolders;
     final items = isApi ? apikeyItems : passwordItems;
-    if (sortMode == 'custom') {
+    if (sortModeFor(type) == 'custom') {
       final entries = <ListEntry>[
         for (final f in folders) ListEntry.ofFolder(f),
         for (final i in items) ListEntry.ofItem(i),
@@ -288,7 +308,8 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     tabConfig = await settings.getTabConfig();
     revealAll = await settings.getRevealAll();
     fontSizeMode = await settings.getFontSizeMode();
-    sortMode = await settings.getSortMode();
+    passwordSortMode = await settings.getSortMode(ItemType.password);
+    apikeySortMode = await settings.getSortMode(ItemType.apikey);
     if (!tabConfig.visibleIds.contains(currentTab)) {
       currentTab = tabConfig.defaultTabId;
     }

@@ -5,6 +5,7 @@ library;
 import 'dart:async';
 import 'dart:convert';
 
+import '../core/constants.dart';
 import 'database.dart';
 
 /// 底部栏 Tab 定义
@@ -170,16 +171,41 @@ class SettingsService {
     return next;
   }
 
-  // ---------- 排序模式（3.5.5：默认名称升序 / 自定义） ----------
-  Future<String> getSortMode() async {
-    final v = await DatabaseService.getSetting('sort_mode');
-    return (v == null || v.isEmpty) ? 'name_asc' : v;
+  // ---------- 分区排序模式（默认名称升序 / 自定义） ----------
+
+  /// 读取指定分区的排序模式。
+  ///
+  /// 新键不存在时回退旧版共用键，使升级前的用户选择能同时迁移到两个分区；
+  /// 后续修改只写对应分区，密码和 API Key 因而可以保持不同规则。
+  Future<String> getSortMode(String type) async {
+    final scopedValue =
+        await DatabaseService.getSetting(_sortModeSettingKey(type));
+    if (scopedValue != null && scopedValue.isNotEmpty) {
+      return _normalizeSortMode(scopedValue);
+    }
+    final legacyValue = await DatabaseService.getSetting(DbKeys.sortMode);
+    return _normalizeSortMode(legacyValue);
   }
 
-  Future<void> setSortMode(String mode) async {
-    await DatabaseService.setSetting('sort_mode', mode);
+  /// 仅更新指定分区的排序模式，非法值直接拒绝，避免界面与持久化状态失配。
+  Future<void> setSortMode(String type, String mode) async {
+    if (mode != 'name_asc' && mode != 'custom') {
+      throw ArgumentError.value(mode, 'mode', '仅支持 name_asc 或 custom');
+    }
+    await DatabaseService.setSetting(_sortModeSettingKey(type), mode);
     _notifyChanged();
   }
+
+  /// 根据条目类型映射独立设置键；未知类型属于调用错误，不能静默串到其他分区。
+  String _sortModeSettingKey(String type) => switch (type) {
+        ItemType.password => DbKeys.passwordSortMode,
+        ItemType.apikey => DbKeys.apikeySortMode,
+        _ => throw ArgumentError.value(type, 'type', '未知的条目类型'),
+      };
+
+  /// 同步或历史数据若含未知值，统一回退名称升序，保证排序行为可预测。
+  String _normalizeSortMode(String? value) =>
+      value == 'custom' ? 'custom' : 'name_asc';
 
   // ---------- 显示全部密码开关（1.1 / 2.1） ----------
   Future<bool> getRevealAll() async {

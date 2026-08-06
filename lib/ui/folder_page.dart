@@ -45,10 +45,10 @@ class _FolderPageState extends State<FolderPage> {
     _load();
   }
 
-  /// 加载本文件夹内的条目，排序方式跟随全局设置
+  /// 加载本文件夹内的条目，排序方式跟随当前密码/API Key 分区设置。
   Future<void> _load() async {
     final state = context.read<AppState>();
-    final items = state.sortMode == 'custom'
+    final items = state.sortModeFor(widget.type) == 'custom'
         ? await state.data.listItems(widget.type, folderId: _folder.id)
         : await state.data.listItemsByName(widget.type, folderId: _folder.id);
     if (!mounted) return;
@@ -61,7 +61,7 @@ class _FolderPageState extends State<FolderPage> {
   @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
-    final customSort = state.sortMode == 'custom';
+    final customSort = state.sortModeFor(widget.type) == 'custom';
 
     return Scaffold(
       backgroundColor: AppColors.background,
