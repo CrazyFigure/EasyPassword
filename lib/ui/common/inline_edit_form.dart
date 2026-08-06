@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/constants.dart';
 import '../../state/app_state.dart';
+import 'masked_text_controller.dart';
 
 /// 内联编辑用的单个字段定义
 class InlineField {
@@ -60,7 +61,8 @@ class InlineEditForm extends StatefulWidget {
 }
 
 class _InlineEditFormState extends State<InlineEditForm> {
-  late final Map<String, TextEditingController> _ctrls;
+  // 敏感字段关闭安全键盘时需要在 Flutter 层自绘遮挡，因此统一用支持遮挡的控制器。
+  late final Map<String, MaskedTextEditingController> _ctrls;
   // 敏感字段的显示状态：key -> 是否明文可见
   late final Map<String, bool> _visible;
   String? _error;
@@ -70,7 +72,7 @@ class _InlineEditFormState extends State<InlineEditForm> {
     super.initState();
     _ctrls = {
       for (final f in widget.fields)
-        f.key: TextEditingController(text: f.initial),
+        f.key: MaskedTextEditingController(text: f.initial),
     };
     _visible = {
       for (final f in widget.fields.where((f) => f.obscure)) f.key: false,
@@ -114,6 +116,55 @@ class _InlineEditFormState extends State<InlineEditForm> {
     });
   }
 
+  /// 渲染单个字段。敏感字段默认遮挡，同时禁用联想和自动纠错避免敏感值泄漏。
+  ///
+  /// 关闭安全键盘时不能再依赖 obscureText——Android 端只要收到它就会给输入法
+  /// 声明密码输入类型，ROM 据此强制切换系统安全键盘。此时改由控制器自绘圆点，
+  /// 输入类型保持普通文本，用户选择的第三方输入法才能被调起。
+  Widget _buildField(InlineField f, bool useSecureKeyboard) {
+    final controller = _ctrls[f.key]!;
+    final revealed = _visible[f.key] ?? false;
+    final obscure = f.obscure && !revealed;
+    final maskInFlutter = obscure && !useSecureKeyboard;
+    controller.maskEnabled = maskInFlutter;
+
+    return TextField(
+      controller: controller,
+      // 自绘遮挡时必须为 false，否则引擎仍会声明密码输入类型。
+      obscureText: obscure && !maskInFlutter,
+      keyboardType: TextInputType.text,
+      // 对齐 obscureText 默认关闭选择的行为，避免长按选中后复制到明文。
+      enableInteractiveSelection: maskInFlutter ? false : null,
+      enableSuggestions: !f.obscure,
+      autocorrect: !f.obscure,
+      maxLines: f.obscure ? 1 : f.maxLines,
+      autofocus: f == widget.fields.first,
+      style: const TextStyle(fontSize: 14),
+      decoration: InputDecoration(
+        labelText: f.label,
+        hintText: f.hint,
+        isDense: true,
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        suffixIcon: f.obscure
+            ? IconButton(
+                icon: Icon(
+                  revealed ? Icons.visibility : Icons.visibility_off,
+                  size: 18,
+                  color: AppColors.textWeak,
+                ),
+                tooltip: revealed ? '隐藏' : '显示',
+                onPressed: () => setState(() => _visible[f.key] = !revealed),
+              )
+            : null,
+      ),
+      // 单行字段回车即保存
+      textInputAction:
+          f.maxLines > 1 ? TextInputAction.newline : TextInputAction.done,
+      onSubmitted: f.maxLines > 1 ? null : (_) => _submit(),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     // 偏好虽然跨设备同步，但只在移动平台改变输入类型，桌面输入行为保持不变。
@@ -143,47 +194,7 @@ class _InlineEditFormState extends State<InlineEditForm> {
           ),
           const SizedBox(height: 10),
           for (final f in widget.fields) ...[
-            TextField(
-              controller: _ctrls[f.key],
-              // 敏感字段默认遮挡；关闭安全键盘时只调整系统输入类型，字段
-              // 内容仍保持圆点遮挡，同时禁用联想和自动纠错，避免敏感值泄漏。
-              obscureText: f.obscure && !(_visible[f.key] ?? false),
-              keyboardType:
-                  f.obscure && !(_visible[f.key] ?? false) && !useSecureKeyboard
-                      ? TextInputType.visiblePassword
-                      : TextInputType.text,
-              enableSuggestions: !f.obscure,
-              autocorrect: !f.obscure,
-              maxLines: f.obscure ? 1 : f.maxLines,
-              autofocus: f == widget.fields.first,
-              style: const TextStyle(fontSize: 14),
-              decoration: InputDecoration(
-                labelText: f.label,
-                hintText: f.hint,
-                isDense: true,
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                suffixIcon: f.obscure
-                    ? IconButton(
-                        icon: Icon(
-                          (_visible[f.key] ?? false)
-                              ? Icons.visibility
-                              : Icons.visibility_off,
-                          size: 18,
-                          color: AppColors.textWeak,
-                        ),
-                        tooltip: (_visible[f.key] ?? false) ? '隐藏' : '显示',
-                        onPressed: () => setState(() =>
-                            _visible[f.key] = !(_visible[f.key] ?? false)),
-                      )
-                    : null,
-              ),
-              // 单行字段回车即保存
-              textInputAction: f.maxLines > 1
-                  ? TextInputAction.newline
-                  : TextInputAction.done,
-              onSubmitted: f.maxLines > 1 ? null : (_) => _submit(),
-            ),
+            _buildField(f, useSecureKeyboard),
             const SizedBox(height: 10),
           ],
           if (_error != null) ...[

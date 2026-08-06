@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/constants.dart';
 import '../../state/app_state.dart';
+import '../common/masked_text_controller.dart';
 import '../common/secret_text_field.dart';
 
 class AppLockRecoverSheet extends StatefulWidget {
@@ -18,8 +19,8 @@ class AppLockRecoverSheet extends StatefulWidget {
 
 class _AppLockRecoverSheetState extends State<AppLockRecoverSheet> {
   final _answerCtrl = TextEditingController();
-  final _newPinCtrl = TextEditingController();
-  final _newPin2Ctrl = TextEditingController();
+  final _newPinCtrl = MaskedTextEditingController();
+  final _newPin2Ctrl = MaskedTextEditingController();
   bool _verified = false;
   bool _busy = false;
 

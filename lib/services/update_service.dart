@@ -4,6 +4,10 @@
 /// 1. 首次请求走系统代理（Windows 读取注册表代理；其他平台默认走环境变量策略）；
 /// 2. 网络错误（代理不可达等）→ 回退直连重试一次；
 /// 3. 403（代理节点数据中心 IP 常被 GitHub API 风控）→ 回退直连重试一次；
+/// 3.5 仍为 403 时改走 github.com 的 releases/latest 302 跳转拿版本号：
+///    api.github.com 未认证配额按出口 IP 计（60 次/小时），运营商 NAT、公司出口、
+///    VPN 出口都是多人共享 IP，配额常被他人占满，换代理重试同一端点无用；
+///    而网页站点的 302 不吃该配额，代价是拿不到更新说明与安装包信息；
 /// 4. 403 需区分：响应头 X-RateLimit-Remaining 为 0 才确认是 API 配额耗尽，
 ///    否则多为代理/安全策略拦截，不应误报成限流；
 /// 5. 版本比较只做保守语义比较：tag 含非数字段时视为无更新，避免误报。
@@ -20,6 +24,9 @@ import '../core/constants.dart';
 
 /// 更新请求注入点：生产环境按是否使用系统代理发起请求，测试可返回固定响应。
 typedef UpdateFetcher = Future<http.Response> Function(bool useSystemProxy);
+
+/// 兜底注入点：返回 releases/latest 的 302 Location 响应头（拿不到时返回 null）。
+typedef UpdateLocationFetcher = Future<String?> Function();
 
 /// 更新检查结果
 class UpdateCheckResult {
@@ -68,12 +75,16 @@ class UpdateService {
 
   final String currentVersion;
   final UpdateFetcher? _fetcher;
+  final UpdateLocationFetcher? _locationFetcher;
 
-  /// [currentVersion] 默认取 CI 注入的安装包版本；[fetcher] 仅用于隔离网络测试。
+  /// [currentVersion] 默认取 CI 注入的安装包版本；
+  /// [fetcher] 与 [locationFetcher] 仅用于隔离网络测试。
   UpdateService({
     this.currentVersion = AppInfo.currentVersion,
     UpdateFetcher? fetcher,
-  }) : _fetcher = fetcher;
+    UpdateLocationFetcher? locationFetcher,
+  })  : _fetcher = fetcher,
+        _locationFetcher = locationFetcher;
 
   /// 检测是否有新版本。失败时抛出 [UpdateCheckException]。
   Future<UpdateCheckResult> check() async {
@@ -103,6 +114,12 @@ class UpdateService {
       // 区分限流与拦截：X-RateLimit-Remaining 为 0 才确认为配额耗尽
       final remaining =
           int.tryParse(response.headers['x-ratelimit-remaining'] ?? '') ?? -1;
+      // API 配额是按出口 IP 计的（未认证 60 次/小时）。移动网络的运营商 NAT、
+      // 公司出口、VPN 出口都是多人共享同一 IP，配额常被他人占满，重试同一端点
+      // 无意义。此时改走 github.com 的 releases/latest 302 跳转拿版本号——
+      // 那是网页站点，不吃 API 配额，只是拿不到更新说明与安装包信息。
+      final fallback = await _checkViaRedirect();
+      if (fallback != null) return fallback;
       if (remaining == 0) {
         throw UpdateCheckException(
             'rate_limited', response.headers['x-ratelimit-reset'] ?? '');
@@ -151,6 +168,20 @@ class UpdateService {
   /// 发起请求。[useSystemProxy] 为 true 时优先使用 Windows 系统代理；
   /// false 时强制直连（no_proxy 语义）。
   Future<http.Response> _fetch({required bool useSystemProxy}) async {
+    final client = await _buildClient(useSystemProxy: useSystemProxy);
+    try {
+      // GitHub API 要求明确 User-Agent
+      return await client.get(
+        Uri.parse(AppInfo.releaseApiUrl),
+        headers: {'User-Agent': _userAgent},
+      ).timeout(_readTimeout);
+    } finally {
+      client.close();
+    }
+  }
+
+  /// 按代理策略构造 HTTP 客户端，供 API 请求与 302 兜底共用。
+  Future<IOClient> _buildClient({required bool useSystemProxy}) async {
     final hc = HttpClient();
     if (!useSystemProxy) {
       // 直连：忽略系统代理，避免把代理服务器的拒绝误报成 GitHub 限流
@@ -164,16 +195,67 @@ class UpdateService {
     }
     hc.connectionTimeout = _connectTimeout;
     // IOClient 从 package:http/io_client.dart 导出（http.dart 主库不含）
-    final client = IOClient(hc);
+    return IOClient(hc);
+  }
+
+  /// API 配额耗尽/被拒时的兜底：用 github.com 的 releases/latest 302 跳转拿版本号。
+  /// 成功返回降级结果（无更新说明与安装包信息），任何失败都返回 null 交回调用方报原错误。
+  Future<UpdateCheckResult?> _checkViaRedirect() async {
+    String? location;
     try {
-      // GitHub API 要求明确 User-Agent
-      return await client.get(
-        Uri.parse(AppInfo.releaseApiUrl),
-        headers: {'User-Agent': _userAgent},
-      ).timeout(_readTimeout);
-    } finally {
-      client.close();
+      location = await _requestLocation();
+    } catch (_) {
+      return null; // 兜底失败不掩盖 API 的原始错误
     }
+    if (location == null) return null;
+    // Location 形如 https://github.com/<owner>/<repo>/releases/tag/v0.2.2
+    final segments = Uri.tryParse(location)?.pathSegments;
+    if (segments == null || segments.length < 2) return null;
+    if (segments[segments.length - 2] != 'tag') return null;
+    final tag = segments.last;
+    final latestVersion = tag.replaceFirst(RegExp(r'^[vV]'), '');
+    // 与主路径一致：非纯数字语义版本不做比较，避免误报
+    if (_parseVersion(latestVersion) == null ||
+        _parseVersion(currentVersion) == null) {
+      return null;
+    }
+    return UpdateCheckResult(
+      currentVersion: currentVersion,
+      latestVersion: latestVersion,
+      releaseName: tag,
+      releaseUrl: location,
+      updateAvailable: _isNewerVersion(latestVersion, currentVersion),
+    );
+  }
+
+  /// 统一分派 302 兜底请求，保证兜底逻辑本身也可测试。
+  Future<String?> _requestLocation() {
+    final fetcher = _locationFetcher;
+    if (fetcher != null) return fetcher();
+    return _fetchLatestTagLocation();
+  }
+
+  /// 读取 releases/latest 的 302 Location 响应头。先走系统代理，失败再直连。
+  Future<String?> _fetchLatestTagLocation() async {
+    for (final useSystemProxy in [true, false]) {
+      final client = await _buildClient(useSystemProxy: useSystemProxy);
+      try {
+        // 必须禁止自动跟随重定向，否则拿不到 Location 头
+        final request = http.Request('GET', Uri.parse(AppInfo.releasePageUrl))
+          ..followRedirects = false
+          ..headers['User-Agent'] = _userAgent;
+        final response = await client.send(request).timeout(_readTimeout);
+        // 释放响应体连接，避免占用 socket
+        await response.stream.drain<void>();
+        final location = response.headers['location'];
+        if (location != null && location.isNotEmpty) return location;
+      } catch (_) {
+        // 本轮失败继续尝试下一种代理策略
+      } finally {
+        client.close();
+      }
+    }
+    return null;
   }
 
   /// 读取 Windows 系统代理（注册表 Internet Settings），
