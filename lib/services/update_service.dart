@@ -18,6 +18,9 @@ import 'package:win32_registry/win32_registry.dart';
 
 import '../core/constants.dart';
 
+/// 更新请求注入点：生产环境按是否使用系统代理发起请求，测试可返回固定响应。
+typedef UpdateFetcher = Future<http.Response> Function(bool useSystemProxy);
+
 /// 更新检查结果
 class UpdateCheckResult {
   final String currentVersion;
@@ -63,24 +66,43 @@ class UpdateService {
 
   static const _userAgent = 'EasyPassword';
 
+  final String currentVersion;
+  final UpdateFetcher? _fetcher;
+
+  /// [currentVersion] 默认取 CI 注入的安装包版本；[fetcher] 仅用于隔离网络测试。
+  UpdateService({
+    this.currentVersion = AppInfo.currentVersion,
+    UpdateFetcher? fetcher,
+  }) : _fetcher = fetcher;
+
   /// 检测是否有新版本。失败时抛出 [UpdateCheckException]。
   Future<UpdateCheckResult> check() async {
     http.Response response;
     // 首次走系统代理；网络错误（代理不可达等）回退直连重试一次
     try {
-      response = await _fetch(useSystemProxy: true);
-    } catch (_) {
-      response = await _fetch(useSystemProxy: false);
+      response = await _request(useSystemProxy: true);
+    } catch (firstError) {
+      try {
+        response = await _request(useSystemProxy: false);
+      } catch (secondError) {
+        throw UpdateCheckException(
+          'network',
+          '$firstError; direct: $secondError',
+        );
+      }
     }
     // 403：代理节点被 GitHub API 风控 → 直连重试一次
     if (response.statusCode == 403) {
-      response = await _fetch(useSystemProxy: false);
+      try {
+        response = await _request(useSystemProxy: false);
+      } catch (error) {
+        throw UpdateCheckException('network', error.toString());
+      }
     }
     if (response.statusCode == 403) {
       // 区分限流与拦截：X-RateLimit-Remaining 为 0 才确认为配额耗尽
-      final remaining = int.tryParse(
-              response.headers['x-ratelimit-remaining'] ?? '') ??
-          -1;
+      final remaining =
+          int.tryParse(response.headers['x-ratelimit-remaining'] ?? '') ?? -1;
       if (remaining == 0) {
         throw UpdateCheckException(
             'rate_limited', response.headers['x-ratelimit-reset'] ?? '');
@@ -95,26 +117,35 @@ class UpdateService {
       final data =
           jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
       final latestTag = data['tag_name'] as String? ?? '';
-      final latestVersion =
-          latestTag.replaceFirst(RegExp(r'^[vV]'), '');
+      final latestVersion = latestTag.replaceFirst(RegExp(r'^[vV]'), '');
+      // Release 或安装包版本不是纯数字语义版本时必须明确报解析错误，不能误报最新版。
+      if (_parseVersion(latestVersion) == null ||
+          _parseVersion(currentVersion) == null) {
+        throw const UpdateCheckException('parse', 'invalid_version');
+      }
       final htmlUrl = data['html_url'] as String? ?? '';
       return UpdateCheckResult(
-        currentVersion: AppInfo.currentVersion,
+        currentVersion: currentVersion,
         latestVersion: latestVersion,
         releaseName: data['name'] as String? ?? latestTag,
-        releaseUrl:
-            htmlUrl.isNotEmpty ? htmlUrl : AppInfo.releasePageUrl,
+        releaseUrl: htmlUrl.isNotEmpty ? htmlUrl : AppInfo.releasePageUrl,
         publishedAt: data['published_at'] as String?,
         releaseBody: data['body'] as String?,
         installerAssetName: _pickInstallerAsset(data['assets']),
-        updateAvailable: _isNewerVersion(
-            latestVersion, AppInfo.currentVersion),
+        updateAvailable: _isNewerVersion(latestVersion, currentVersion),
       );
     } on UpdateCheckException {
       rethrow;
     } catch (e) {
       throw UpdateCheckException('parse', e.toString());
     }
+  }
+
+  /// 统一分派生产网络请求与测试注入请求，保证代理回退逻辑本身也可测试。
+  Future<http.Response> _request({required bool useSystemProxy}) {
+    final fetcher = _fetcher;
+    if (fetcher != null) return fetcher(useSystemProxy);
+    return _fetch(useSystemProxy: useSystemProxy);
   }
 
   /// 发起请求。[useSystemProxy] 为 true 时优先使用 Windows 系统代理；
@@ -136,12 +167,10 @@ class UpdateService {
     final client = IOClient(hc);
     try {
       // GitHub API 要求明确 User-Agent
-      return await client
-          .get(
-            Uri.parse(AppInfo.releaseApiUrl),
-            headers: {'User-Agent': _userAgent},
-          )
-          .timeout(_readTimeout);
+      return await client.get(
+        Uri.parse(AppInfo.releaseApiUrl),
+        headers: {'User-Agent': _userAgent},
+      ).timeout(_readTimeout);
     } finally {
       client.close();
     }
