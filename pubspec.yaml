@@ -9,6 +9,9 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  # Material/Cupertino 本地化代理用于把输入框长按菜单显示为中文。
+  flutter_localizations:
+    sdk: flutter
   provider: ^6.1.2
   sqflite: ^2.3.3
   sqflite_common_ffi: ^2.3.3

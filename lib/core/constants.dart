@@ -56,9 +56,14 @@ class DbKeys {
   static const String securityAnswer = 'security_answer_hash';
   static const String fontScale = 'font_scale'; // FontSizeMode.name；兼容旧数值
   static const String fontFamily = 'font_family'; // 当前设备字体；空值=系统默认
+  static const String secureKeyboardEnabled = 'secure_keyboard_enabled';
+  static const String webdavEnabled = 'webdav_enabled';
   static const String webdavUrl = 'webdav_url';
   static const String webdavUser = 'webdav_username';
   static const String webdavPass = 'webdav_password';
+  static const String webdavPath = 'webdav_path';
+  static const String webdavAutoSyncEnabled = 'webdav_auto_sync_enabled';
+  static const String webdavAutoSyncInterval = 'webdav_auto_sync_interval';
   static const String syncRevision = 'sync_revision';
   // 旧版共用排序键仅用于升级兼容；新版按密码/API Key 分区独立保存。
   static const String sortMode = 'sort_mode';
@@ -68,6 +73,11 @@ class DbKeys {
   static const String deviceKey = 'device_key'; // 无应用锁时的本地密钥
   static const String tabVisibility = 'tab_visibility'; // json: 底部栏开关与顺序
   static const String revealAll = 'reveal_all'; // 是否显示全部密码
+}
+
+/// WebDAV 新配置的默认值。远端路径独立于服务器根地址，便于应用自动建目录。
+class WebDavDefaults {
+  static const String remotePath = '/EasyPassword';
 }
 
 /// ---- 应用信息与更新检查（对齐 GitHub Releases 版本号）----

@@ -196,7 +196,7 @@ void main() {
     await databaseFactory.deleteDatabase(path);
   });
 
-  test('v4 升级后分区排序设置会进入同步日志', () async {
+  test('旧版升级后分区排序与安全键盘设置都会进入同步日志', () async {
     final dir = await databaseFactory.getDatabasesPath();
     final path =
         '$dir/migration_v4_${DateTime.now().microsecondsSinceEpoch}.db';
@@ -229,16 +229,20 @@ void main() {
     await v4.setVersion(4);
     await DatabaseService.resetForTest();
 
-    // 重新打开触发 v4 → v5；新分区键必须由重建后的触发器记录。
+    // 重新打开升级到最新版；新增的分区排序与安全键盘键都必须被记录。
     final upgraded = await DatabaseService.db;
     await upgraded.delete('sync_journal');
     await DatabaseService.setSetting('sort_mode_password', 'custom');
+    await DatabaseService.setSetting('secure_keyboard_enabled', '0');
     final rows = await upgraded.query(
       'sync_journal',
-      where: 'entity_type = ? AND entity_id = ?',
-      whereArgs: ['settings', 'sort_mode_password'],
+      where: 'entity_type = ?',
+      whereArgs: ['settings'],
     );
-    expect(rows, hasLength(1));
+    expect(
+      rows.map((row) => row['entity_id']).toSet(),
+      containsAll({'sort_mode_password', 'secure_keyboard_enabled'}),
+    );
 
     await DatabaseService.resetForTest();
     DatabaseService.overridePath = null;

@@ -7,6 +7,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:sqflite/sqflite.dart';
 
+import '../core/constants.dart';
 import 'crypto_service.dart';
 import 'data_service.dart';
 import 'database.dart';
@@ -21,7 +22,6 @@ class WebDavService {
   WebDavService(this.crypto, this.data);
 
   static const String _snapshotName = 'easypassword-snapshot.json.enc';
-  static const String _collectionName = 'EasyPassword';
   static const int _snapshotVersion = 3;
 
   // ================= 快照导出与加密 =================
@@ -70,13 +70,14 @@ class WebDavService {
     String? baseUrl,
     String username = '',
     String password = '',
+    String remotePath = WebDavDefaults.remotePath,
   }) async {
     final payload = jsonEncode(await exportAll());
     if (baseUrl == null) return crypto.encrypt(payload);
     return crypto.encryptForSync(
       payload,
       _syncSecret(username, password),
-      _syncIdentity(baseUrl),
+      _syncIdentity(baseUrl, remotePath),
     );
   }
 
@@ -90,12 +91,14 @@ class WebDavService {
     String? baseUrl,
     String username = '',
     String password = '',
+    String remotePath = WebDavDefaults.remotePath,
   }) async {
     final snapshot = await _decodeSnapshot(
       encryptedSnapshot,
       baseUrl: baseUrl,
       username: username,
       password: password,
+      remotePath: remotePath,
     );
     return _applySnapshot(snapshot, replaceLocal: false);
   }
@@ -107,12 +110,14 @@ class WebDavService {
     required String baseUrl,
     String username = '',
     String password = '',
+    String remotePath = WebDavDefaults.remotePath,
   }) async {
     final snapshot = await _decodeSnapshot(
       encryptedSnapshot,
       baseUrl: baseUrl,
       username: username,
       password: password,
+      remotePath: remotePath,
     );
     return _applySnapshot(snapshot, replaceLocal: true);
   }
@@ -123,13 +128,14 @@ class WebDavService {
     String? baseUrl,
     required String username,
     required String password,
+    String remotePath = WebDavDefaults.remotePath,
   }) async {
     final jsonText = baseUrl == null
         ? await crypto.decrypt(encryptedSnapshot)
         : await crypto.decryptForSync(
             encryptedSnapshot,
             _syncSecret(username, password),
-            _syncIdentity(baseUrl),
+            _syncIdentity(baseUrl, remotePath),
           );
     try {
       final value = jsonDecode(jsonText);
@@ -328,29 +334,68 @@ class WebDavService {
 
   // ================= WebDAV 目录与传输 =================
 
-  /// 测试连接同时验证写权限；应用会在用户填写的 WebDAV 根地址下自动创建
-  /// EasyPassword 文件夹，不再要求用户提前进入网页端手工建目录。
+  /// 测试连接同时验证写权限；应用会在 WebDAV 根地址下自动逐级创建用户
+  /// 指定的远端路径，不再要求提前进入网页端手工建目录。
   Future<void> testConnection(
-      String baseUrl, String username, String password) async {
-    await _ensureCollection(baseUrl, username, password);
+    String baseUrl,
+    String username,
+    String password, {
+    String remotePath = WebDavDefaults.remotePath,
+  }) async {
+    await _ensureCollection(
+      baseUrl,
+      username,
+      password,
+      remotePath: remotePath,
+    );
   }
 
   /// 拉取远端快照；文件尚不存在时返回 null。
   Future<String?> pullSnapshot(
-      String baseUrl, String username, String password) async {
-    return (await _pullRemote(baseUrl, username, password)).body;
+    String baseUrl,
+    String username,
+    String password, {
+    String remotePath = WebDavDefaults.remotePath,
+  }) async {
+    return (await _pullRemote(
+      baseUrl,
+      username,
+      password,
+      remotePath: remotePath,
+    ))
+        .body;
   }
 
   /// 无条件推送快照，供明确选择“本地覆盖远端”的操作使用。
-  Future<void> pushSnapshot(String baseUrl, String username, String password,
-      String encrypted) async {
-    await _putRemote(baseUrl, username, password, encrypted);
+  Future<void> pushSnapshot(
+    String baseUrl,
+    String username,
+    String password,
+    String encrypted, {
+    String remotePath = WebDavDefaults.remotePath,
+  }) async {
+    await _putRemote(
+      baseUrl,
+      username,
+      password,
+      encrypted,
+      remotePath: remotePath,
+    );
   }
 
   Future<_RemoteSnapshot> _pullRemote(
-      String baseUrl, String username, String password) async {
-    await _ensureCollection(baseUrl, username, password);
-    final uri = _resolveFileUri(baseUrl, _snapshotName);
+    String baseUrl,
+    String username,
+    String password, {
+    String remotePath = WebDavDefaults.remotePath,
+  }) async {
+    await _ensureCollection(
+      baseUrl,
+      username,
+      password,
+      remotePath: remotePath,
+    );
+    final uri = _resolveFileUri(baseUrl, remotePath, _snapshotName);
     final response =
         await http.get(uri, headers: _authHeaders(username, password));
     if (response.statusCode == 404) {
@@ -375,10 +420,16 @@ class WebDavService {
     String username,
     String password,
     String encrypted, {
+    String remotePath = WebDavDefaults.remotePath,
     String? expectedEtag,
     bool onlyIfMissing = false,
   }) async {
-    await _ensureCollection(baseUrl, username, password);
+    await _ensureCollection(
+      baseUrl,
+      username,
+      password,
+      remotePath: remotePath,
+    );
     final headers = <String, String>{
       ..._authHeaders(username, password),
       'Content-Type': 'application/octet-stream',
@@ -386,50 +437,75 @@ class WebDavService {
       if (onlyIfMissing) 'If-None-Match': '*',
     };
     final response = await http.put(
-      _resolveFileUri(baseUrl, _snapshotName),
+      _resolveFileUri(baseUrl, remotePath, _snapshotName),
       headers: headers,
       body: encrypted,
     );
     if (response.statusCode == 412) throw const _RemoteChangedException();
     if (response.statusCode >= 300) {
-      throw Exception(_pushError(response.statusCode));
+      throw Exception(_pushError(response.statusCode, remotePath));
     }
   }
 
-  /// 只创建应用自己的一级目录，绝不尝试 MKCOL WebDAV 服务路径本身
-  /// （例如坚果云 /dav/），从根因上避免对服务根目录误操作导致 403。
+  /// 先验证服务器根地址，再逐级检查/创建配置路径。创建范围严格限制在
+  /// 根地址之下，绝不尝试对坚果云 `/dav/` 等服务目录本身执行 MKCOL。
   Future<void> _ensureCollection(
-      String baseUrl, String username, String password) async {
-    final collection = _collectionUri(baseUrl);
-    final currentStatus = await _propfindStatus(collection, username, password);
+    String baseUrl,
+    String username,
+    String password, {
+    required String remotePath,
+  }) async {
+    final target = _collectionTarget(baseUrl, remotePath);
+    final currentStatus =
+        await _propfindStatus(target.collection, username, password);
     if (currentStatus == 200 || currentStatus == 207) return;
     if (currentStatus == 401) throw Exception(_authError(currentStatus));
     if (currentStatus == 403) {
-      throw Exception(_writeForbiddenError(currentStatus));
+      throw Exception(_writeForbiddenError(currentStatus, target.path));
     }
     if (currentStatus != 404) {
       throw Exception('WebDAV 连接失败（HTTP $currentStatus）：请检查根地址');
     }
 
-    final parent = _parentUri(collection);
-    final parentStatus = await _propfindStatus(parent, username, password);
-    if (parentStatus == 401 || parentStatus == 403) {
-      throw Exception(_authError(parentStatus));
+    final rootStatus = await _propfindStatus(target.root, username, password);
+    if (rootStatus == 401) throw Exception(_authError(rootStatus));
+    if (rootStatus == 403) {
+      throw Exception(_writeForbiddenError(rootStatus, target.path));
     }
-    if (parentStatus != 200 && parentStatus != 207) {
-      throw Exception('WebDAV 根地址不存在（HTTP $parentStatus），请检查服务器地址');
+    if (rootStatus != 200 && rootStatus != 207) {
+      throw Exception('WebDAV 根地址不存在（HTTP $rootStatus），请检查服务器地址');
     }
 
-    final createStatus = await _mkcol(collection, username, password);
-    if (createStatus == 401) throw Exception(_authError(createStatus));
-    if (createStatus == 403) {
-      throw Exception(_writeForbiddenError(createStatus));
-    }
-    final created =
-        (createStatus >= 200 && createStatus < 300) || createStatus == 405;
-    if (!created) {
-      throw Exception('自动创建 $_collectionName 文件夹失败（HTTP $createStatus）：'
-          '请确认 WebDAV 账号拥有写入权限');
+    var current = target.root;
+    for (final segment in target.segments) {
+      current = current.replace(
+        pathSegments: [
+          ...current.pathSegments.where((part) => part.isNotEmpty),
+          segment,
+          '',
+        ],
+      );
+      final status = await _propfindStatus(current, username, password);
+      if (status == 200 || status == 207) continue;
+      if (status == 401) throw Exception(_authError(status));
+      if (status == 403) {
+        throw Exception(_writeForbiddenError(status, target.path));
+      }
+      if (status != 404) {
+        throw Exception('检查远端路径 ${target.path} 失败（HTTP $status）');
+      }
+
+      final createStatus = await _mkcol(current, username, password);
+      if (createStatus == 401) throw Exception(_authError(createStatus));
+      if (createStatus == 403) {
+        throw Exception(_writeForbiddenError(createStatus, target.path));
+      }
+      final created =
+          (createStatus >= 200 && createStatus < 300) || createStatus == 405;
+      if (!created) {
+        throw Exception('自动创建远端路径 ${target.path} 失败（HTTP $createStatus）：'
+            '请确认 WebDAV 账号拥有新建目录权限');
+      }
     }
   }
 
@@ -465,16 +541,16 @@ class WebDavService {
   String _authError(int status) =>
       'WebDAV 认证失败（HTTP $status）：请检查用户名与密码，坚果云需使用应用密码';
 
-  String _writeForbiddenError(int status) =>
-      'WebDAV 写入被拒（HTTP $status）：应用已尝试自动创建 $_collectionName 文件夹，'
+  String _writeForbiddenError(int status, String remotePath) =>
+      'WebDAV 写入被拒（HTTP $status）：应用已尝试自动创建 $remotePath，'
       '请确认当前账号对该根地址具有新建文件夹和上传文件权限';
 
-  String _pushError(int status) {
+  String _pushError(int status, String remotePath) {
     switch (status) {
       case 401:
         return _authError(status);
       case 403:
-        return _writeForbiddenError(status);
+        return _writeForbiddenError(status, remotePath);
       case 404:
       case 409:
         return 'WebDAV 写入路径不存在（HTTP $status），请检查服务器根地址';
@@ -488,40 +564,70 @@ class WebDavService {
             'Basic ${base64Encode(utf8.encode('$username:$password'))}',
       };
 
-  /// 兼容旧配置：若用户已经填写到 /EasyPassword/，直接沿用；否则只在
-  /// 所填根地址后追加该目录。统一补尾斜杠，保证各设备派生相同同步密钥。
-  Uri _collectionUri(String baseUrl) {
+  /// 解析服务器根地址与配置路径。若旧配置的服务器地址已经以相同路径结尾，
+  /// 会拆回同一个根地址，避免升级后形成 `/EasyPassword/EasyPassword/`。
+  _CollectionTarget _collectionTarget(String baseUrl, String remotePath) {
     final uri = Uri.tryParse(baseUrl.trim());
     if (uri == null ||
         !const {'http', 'https'}.contains(uri.scheme.toLowerCase()) ||
         uri.host.isEmpty) {
       throw Exception('WebDAV 地址格式无效，请填写完整的 http(s) 地址');
     }
-    var path = uri.path;
-    if (!path.endsWith('/')) path = '$path/';
-    final segments = path.split('/').where((part) => part.isNotEmpty).toList();
-    if (segments.isEmpty ||
-        segments.last.toLowerCase() != _collectionName.toLowerCase()) {
-      path = '$path$_collectionName/';
+    if (uri.hasQuery || uri.hasFragment) {
+      throw Exception('WebDAV 根地址不能包含查询参数或片段');
     }
-    return uri.replace(path: path);
+
+    final path = normalizeRemotePath(remotePath);
+    final remoteSegments =
+        path.split('/').where((part) => part.isNotEmpty).toList();
+    final baseSegments =
+        uri.pathSegments.where((part) => part.isNotEmpty).toList();
+    final includesPath = baseSegments.length >= remoteSegments.length &&
+        List.generate(
+          remoteSegments.length,
+          (index) =>
+              baseSegments[baseSegments.length - remoteSegments.length + index]
+                  .toLowerCase() ==
+              remoteSegments[index].toLowerCase(),
+        ).every((matches) => matches);
+    final rootSegments = includesPath
+        ? baseSegments.sublist(0, baseSegments.length - remoteSegments.length)
+        : baseSegments;
+    // 旧地址已经包含路径时保留其实际大小写，既兼容区分大小写的服务器，
+    // 也确保升级前后使用完全相同的快照加密身份。
+    final targetSegments = includesPath
+        ? baseSegments.sublist(baseSegments.length - remoteSegments.length)
+        : remoteSegments;
+    final collectionSegments = [...rootSegments, ...targetSegments];
+    return _CollectionTarget(
+      root: uri.replace(pathSegments: [...rootSegments, '']),
+      collection: uri.replace(pathSegments: [...collectionSegments, '']),
+      path: path,
+      segments: targetSegments,
+    );
   }
 
-  Uri _parentUri(Uri collection) {
-    final segments =
-        collection.pathSegments.where((part) => part.isNotEmpty).toList();
-    if (segments.isNotEmpty) segments.removeLast();
-    final path = segments.isEmpty ? '/' : '/${segments.join('/')}/';
-    return collection.replace(path: path);
+  /// 对外暴露统一的路径规范化规则，供设置页在保存成功后回显。
+  static String normalizeRemotePath(String remotePath) {
+    var value = remotePath.trim().replaceAll('\\', '/');
+    if (value.isEmpty) value = WebDavDefaults.remotePath;
+    final segments = value.split('/').where((part) => part.isNotEmpty).toList();
+    if (segments.isEmpty) {
+      throw Exception('WebDAV 远端路径不能为空');
+    }
+    if (segments.any((part) => part == '.' || part == '..')) {
+      throw Exception('WebDAV 远端路径不能包含 . 或 ..');
+    }
+    return '/${segments.join('/')}';
   }
 
-  Uri _resolveFileUri(String baseUrl, String fileName) {
-    final collection = _collectionUri(baseUrl);
+  Uri _resolveFileUri(String baseUrl, String remotePath, String fileName) {
+    final collection = _collectionTarget(baseUrl, remotePath).collection;
     return collection.replace(path: '${collection.path}$fileName');
   }
 
-  String _syncIdentity(String baseUrl) {
-    final uri = _collectionUri(baseUrl);
+  String _syncIdentity(String baseUrl, String remotePath) {
+    final uri = _collectionTarget(baseUrl, remotePath).collection;
     return uri
         .replace(
           scheme: uri.scheme.toLowerCase(),
@@ -538,22 +644,42 @@ class WebDavService {
 
   /// 本地覆盖远端：明确的强制上传，不拉取也不合并。
   Future<SyncSummary> overwriteRemote(
-      String baseUrl, String username, String password) async {
+    String baseUrl,
+    String username,
+    String password, {
+    String remotePath = WebDavDefaults.remotePath,
+  }) async {
     final highWaterMark = await DatabaseService.getSyncJournalHighWaterMark();
     final snapshot = await buildSnapshot(
       baseUrl: baseUrl,
       username: username,
       password: password,
+      remotePath: remotePath,
     );
-    await pushSnapshot(baseUrl, username, password, snapshot);
+    await pushSnapshot(
+      baseUrl,
+      username,
+      password,
+      snapshot,
+      remotePath: remotePath,
+    );
     await DatabaseService.clearSyncJournalThrough(highWaterMark);
     return const SyncSummary(merged: 0, pushed: true);
   }
 
   /// 远端覆盖本地：明确的强制下载；远端不存在时拒绝清空本地。
   Future<SyncSummary> overwriteLocal(
-      String baseUrl, String username, String password) async {
-    final remote = await _pullRemote(baseUrl, username, password);
+    String baseUrl,
+    String username,
+    String password, {
+    String remotePath = WebDavDefaults.remotePath,
+  }) async {
+    final remote = await _pullRemote(
+      baseUrl,
+      username,
+      password,
+      remotePath: remotePath,
+    );
     if (remote.body == null) {
       throw Exception('远端还没有同步快照，不能覆盖本地数据');
     }
@@ -562,6 +688,7 @@ class WebDavService {
       baseUrl: baseUrl,
       username: username,
       password: password,
+      remotePath: remotePath,
     );
     final highWaterMark = await DatabaseService.getSyncJournalHighWaterMark();
     await DatabaseService.clearSyncJournalThrough(highWaterMark);
@@ -571,16 +698,26 @@ class WebDavService {
   /// 自动同步：远端与本地逐行合并后推送。遇到 ETag 冲突最多重试三次，
   /// 覆盖正常网络抖动和多台设备几乎同时同步的场景。
   Future<SyncSummary> syncAll(
-      String baseUrl, String username, String password) async {
+    String baseUrl,
+    String username,
+    String password, {
+    String remotePath = WebDavDefaults.remotePath,
+  }) async {
     var merged = 0;
     for (var attempt = 0; attempt < 3; attempt++) {
-      final remote = await _pullRemote(baseUrl, username, password);
+      final remote = await _pullRemote(
+        baseUrl,
+        username,
+        password,
+        remotePath: remotePath,
+      );
       if (remote.body != null) {
         merged += await mergeSnapshot(
           remote.body!,
           baseUrl: baseUrl,
           username: username,
           password: password,
+          remotePath: remotePath,
         );
       }
       final highWaterMark = await DatabaseService.getSyncJournalHighWaterMark();
@@ -588,6 +725,7 @@ class WebDavService {
         baseUrl: baseUrl,
         username: username,
         password: password,
+        remotePath: remotePath,
       );
       try {
         await _putRemote(
@@ -595,6 +733,7 @@ class WebDavService {
           username,
           password,
           snapshot,
+          remotePath: remotePath,
           expectedEtag: remote.etag,
           onlyIfMissing: remote.body == null,
         );
@@ -620,6 +759,22 @@ class _RemoteSnapshot {
   final String? body;
   final String? etag;
   const _RemoteSnapshot({required this.body, required this.etag});
+}
+
+/// 规范化后的根地址与目标目录。保存逐级目录片段可确保 MKCOL 只发生在
+/// 用户填写的服务器根地址之下。
+class _CollectionTarget {
+  final Uri root;
+  final Uri collection;
+  final String path;
+  final List<String> segments;
+
+  const _CollectionTarget({
+    required this.root,
+    required this.collection,
+    required this.path,
+    required this.segments,
+  });
 }
 
 class _RemoteChangedException implements Exception {

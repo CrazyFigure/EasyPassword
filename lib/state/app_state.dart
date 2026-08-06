@@ -44,6 +44,8 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   // 文件夹内条目数：folderId -> 条目数
   Map<String, int> folderCounts = {};
   bool revealAll = false;
+  bool secureKeyboardEnabled = true; // 移动端密码输入默认请求系统安全键盘
+  bool webDavEnabled = false; // WebDAV 功能总开关；关闭时配置和同步都不可用
   bool syncing = false;
   String? syncMessage;
   bool autoSyncEnabled = true; // 修改后即时同步与前台定时同步总开关
@@ -99,6 +101,8 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       tabConfig = await settings.getTabConfig();
       currentTab = tabConfig.defaultTabId;
       revealAll = await settings.getRevealAll();
+      secureKeyboardEnabled = await settings.getSecureKeyboardEnabled();
+      webDavEnabled = await settings.getWebDavEnabled();
       fontSizeMode = await settings.getFontSizeMode();
       fontFamily = await settings.getFontFamily();
       passwordSortMode = await settings.getSortMode(ItemType.password);
@@ -250,13 +254,57 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
   }
 
-  /// 保存 WebDAV 配置并立即验证/创建 EasyPassword 远端文件夹。
-  Future<void> saveWebDavConfig(
-      String url, String username, String password) async {
-    await webdav.testConnection(url, username, password);
-    await settings.setWebDavConfig(url, username, password);
+  /// 切换移动端安全键盘偏好；密码仍由 Flutter 遮挡，偏好会进入加密快照。
+  Future<void> updateSecureKeyboard(bool enabled) async {
+    secureKeyboardEnabled = enabled;
+    await settings.setSecureKeyboardEnabled(enabled);
+    notifyListeners();
+  }
+
+  /// WebDAV 总开关关闭时立即终止后续调度。重新开启且已有配置时只启动
+  /// 自动双向合并，绝不隐式执行“本地覆盖远端”或“远端覆盖本地”。
+  Future<void> updateWebDavEnabled(bool enabled) async {
+    webDavEnabled = enabled;
+    await settings.setWebDavEnabled(enabled);
+    _changeSyncTimer?.cancel();
+    _periodicSyncTimer?.cancel();
+    _syncQueued = false;
+
+    final config = await settings.getWebDavConfig();
+    if (!enabled) {
+      syncMessage = 'WebDAV 已关闭';
+      notifyListeners();
+      return;
+    }
+
+    syncMessage =
+        config == null ? 'WebDAV 已启用，请先保存连接配置' : 'WebDAV 已启用，将使用双向合并同步';
     await _restartPeriodicSync();
-    _scheduleAutomaticSync(const Duration(milliseconds: 300));
+    notifyListeners();
+    if (config != null && autoSyncEnabled) {
+      _scheduleAutomaticSync(const Duration(milliseconds: 300));
+    }
+  }
+
+  /// 保存 WebDAV 配置并立即验证/创建用户指定的远端路径。
+  Future<void> saveWebDavConfig(
+    String url,
+    String username,
+    String password,
+    String remotePath,
+  ) async {
+    if (!webDavEnabled) throw Exception('请先开启 WebDAV');
+    await webdav.testConnection(
+      url,
+      username,
+      password,
+      remotePath: remotePath,
+    );
+    await settings.setWebDavConfig(url, username, password, remotePath);
+    await _restartPeriodicSync();
+    if (autoSyncEnabled) {
+      _scheduleAutomaticSync(const Duration(milliseconds: 300));
+    }
   }
 
   /// 更新自动同步策略。关闭后仍可使用三种手动同步按钮。
@@ -269,7 +317,9 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     await settings.setAutoSyncEnabled(enabled);
     await _restartPeriodicSync();
     notifyListeners();
-    if (enabled) _scheduleAutomaticSync(const Duration(milliseconds: 300));
+    if (webDavEnabled && enabled) {
+      _scheduleAutomaticSync(const Duration(milliseconds: 300));
+    }
   }
 
   /// 执行三种同步模式。自动模式逐行合并；两个覆盖模式由界面二次确认。
@@ -277,6 +327,11 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     WebDavSyncMode mode = WebDavSyncMode.automatic,
     bool background = false,
   }) async {
+    if (!webDavEnabled) {
+      syncMessage = 'WebDAV 已关闭，请先打开总开关';
+      notifyListeners();
+      return;
+    }
     final cfg = await settings.getWebDavConfig();
     if (cfg == null) {
       syncMessage = '尚未配置 WebDAV';
@@ -294,13 +349,28 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       final SyncSummary summary;
       switch (mode) {
         case WebDavSyncMode.localToRemote:
-          summary = await webdav.overwriteRemote(cfg.url, cfg.user, cfg.pass);
+          summary = await webdav.overwriteRemote(
+            cfg.url,
+            cfg.user,
+            cfg.pass,
+            remotePath: cfg.path,
+          );
           break;
         case WebDavSyncMode.remoteToLocal:
-          summary = await webdav.overwriteLocal(cfg.url, cfg.user, cfg.pass);
+          summary = await webdav.overwriteLocal(
+            cfg.url,
+            cfg.user,
+            cfg.pass,
+            remotePath: cfg.path,
+          );
           break;
         case WebDavSyncMode.automatic:
-          summary = await webdav.syncAll(cfg.url, cfg.user, cfg.pass);
+          summary = await webdav.syncAll(
+            cfg.url,
+            cfg.user,
+            cfg.pass,
+            remotePath: cfg.path,
+          );
           break;
       }
       lastSyncAt = DateTime.now();
@@ -334,6 +404,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     appLockEnabled = await appLock.isEnabled();
     tabConfig = await settings.getTabConfig();
     revealAll = await settings.getRevealAll();
+    secureKeyboardEnabled = await settings.getSecureKeyboardEnabled();
     fontSizeMode = await settings.getFontSizeMode();
     passwordSortMode = await settings.getSortMode(ItemType.password);
     apikeySortMode = await settings.getSortMode(ItemType.apikey);
@@ -348,7 +419,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   /// 每次业务或可同步设置变更后延迟一小段时间合并发送；断网失败时日志
   /// 会保留，定时任务或恢复到前台后继续重试。
   Future<void> _onLocalChanged() async {
-    if (!initialized || !autoSyncEnabled) return;
+    if (!initialized || !webDavEnabled || !autoSyncEnabled) return;
     if (syncing) {
       _syncQueued = true;
       return;
@@ -357,11 +428,11 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   void _scheduleAutomaticSync(Duration delay) {
-    if (!initialized || !autoSyncEnabled) return;
+    if (!initialized || !webDavEnabled || !autoSyncEnabled) return;
     _changeSyncTimer?.cancel();
     _changeSyncTimer = Timer(delay, () async {
       final cfg = await settings.getWebDavConfig();
-      if (cfg == null || !autoSyncEnabled) return;
+      if (cfg == null || !webDavEnabled || !autoSyncEnabled) return;
       await syncNow(background: true);
     });
   }
@@ -369,7 +440,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   /// 应用运行期间周期拉取远端，既重试离线修改，也接收其他设备的变化。
   Future<void> _restartPeriodicSync() async {
     _periodicSyncTimer?.cancel();
-    if (!initialized || !autoSyncEnabled) return;
+    if (!initialized || !webDavEnabled || !autoSyncEnabled) return;
     final cfg = await settings.getWebDavConfig();
     if (cfg == null) return;
     _periodicSyncTimer = Timer.periodic(

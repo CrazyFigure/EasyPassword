@@ -218,37 +218,97 @@ class SettingsService {
     _notifyChanged();
   }
 
-  // ---------- WebDAV 配置（3.5.3） ----------
-  Future<({String url, String user, String pass})?> getWebDavConfig() async {
-    final url = await DatabaseService.getSetting('webdav_url');
-    if (url == null || url.isEmpty) return null;
-    final user = await DatabaseService.getSetting('webdav_username') ?? '';
-    final pass = await DatabaseService.getSetting('webdav_password') ?? '';
-    return (url: url, user: user, pass: pass);
+  // ---------- 移动端安全键盘（跨设备同步） ----------
+
+  /// 安全键盘默认开启；偏好加入加密快照，让多台移动设备保持一致。
+  Future<bool> getSecureKeyboardEnabled() async {
+    final value =
+        await DatabaseService.getSetting(DbKeys.secureKeyboardEnabled);
+    return value == null || value == '1';
   }
 
-  Future<void> setWebDavConfig(String url, String user, String pass) async {
-    await DatabaseService.setSetting('webdav_url', url);
-    await DatabaseService.setSetting('webdav_username', user);
-    await DatabaseService.setSetting('webdav_password', pass);
+  Future<void> setSecureKeyboardEnabled(bool enabled) async {
+    await DatabaseService.setSetting(
+      DbKeys.secureKeyboardEnabled,
+      enabled ? '1' : '0',
+    );
+    _notifyChanged();
+  }
+
+  // ---------- WebDAV 配置（3.5.3） ----------
+  Future<({String url, String user, String pass, String path})?>
+      getWebDavConfig() async {
+    final url = await DatabaseService.getSetting(DbKeys.webdavUrl);
+    if (url == null || url.isEmpty) return null;
+    final user = await DatabaseService.getSetting(DbKeys.webdavUser) ?? '';
+    final pass = await DatabaseService.getSetting(DbKeys.webdavPass) ?? '';
+    final path = normalizeWebDavPath(
+      await DatabaseService.getSetting(DbKeys.webdavPath),
+    );
+    return (url: url, user: user, pass: pass, path: path);
+  }
+
+  /// 保存连接信息前统一路径格式，确保各设备派生相同的快照加密身份。
+  Future<void> setWebDavConfig(
+    String url,
+    String user,
+    String pass,
+    String path,
+  ) async {
+    await DatabaseService.setSetting(DbKeys.webdavUrl, url);
+    await DatabaseService.setSetting(DbKeys.webdavUser, user);
+    await DatabaseService.setSetting(DbKeys.webdavPass, pass);
+    await DatabaseService.setSetting(
+      DbKeys.webdavPath,
+      normalizeWebDavPath(path),
+    );
+  }
+
+  /// 总开关缺失时，仅对已经配置过 WebDAV 的老用户保持启用，避免升级后
+  /// 中断原有同步；新安装且未配置的用户默认关闭。
+  Future<bool> getWebDavEnabled() async {
+    final value = await DatabaseService.getSetting(DbKeys.webdavEnabled);
+    if (value != null) return value == '1';
+    return await getWebDavConfig() != null;
+  }
+
+  Future<void> setWebDavEnabled(bool enabled) async {
+    await DatabaseService.setSetting(
+      DbKeys.webdavEnabled,
+      enabled ? '1' : '0',
+    );
+  }
+
+  /// 空值兼容旧配置并回退默认目录；其余路径统一为“/目录/子目录”格式。
+  static String normalizeWebDavPath(String? value) {
+    var path = value?.trim().replaceAll('\\', '/') ?? '';
+    if (path.isEmpty) return WebDavDefaults.remotePath;
+    final segments = path.split('/').where((part) => part.isNotEmpty).toList();
+    if (segments.isEmpty) return WebDavDefaults.remotePath;
+    if (segments.any((part) => part == '.' || part == '..')) {
+      throw ArgumentError.value(value, 'value', 'WebDAV 路径不能包含 . 或 ..');
+    }
+    return '/${segments.join('/')}';
   }
 
   // ---------- 自动同步（仅本机，避免远端配置反向覆盖连接策略） ----------
 
   /// 修改后即时同步与前台定时同步总开关，配置 WebDAV 后默认开启。
   Future<bool> getAutoSyncEnabled() async {
-    final value = await DatabaseService.getSetting('webdav_auto_sync_enabled');
+    final value =
+        await DatabaseService.getSetting(DbKeys.webdavAutoSyncEnabled);
     return value == null || value == '1';
   }
 
   Future<void> setAutoSyncEnabled(bool enabled) async {
     await DatabaseService.setSetting(
-        'webdav_auto_sync_enabled', enabled ? '1' : '0');
+        DbKeys.webdavAutoSyncEnabled, enabled ? '1' : '0');
   }
 
   /// 前台定时同步间隔，默认 15 分钟；非法历史值自动回退默认值。
   Future<int> getAutoSyncIntervalMinutes() async {
-    final value = await DatabaseService.getSetting('webdav_auto_sync_interval');
+    final value =
+        await DatabaseService.getSetting(DbKeys.webdavAutoSyncInterval);
     final minutes = int.tryParse(value ?? '');
     return const {5, 15, 30, 60}.contains(minutes) ? minutes! : 15;
   }
@@ -256,6 +316,6 @@ class SettingsService {
   Future<void> setAutoSyncIntervalMinutes(int minutes) async {
     final safeMinutes = const {5, 15, 30, 60}.contains(minutes) ? minutes : 15;
     await DatabaseService.setSetting(
-        'webdav_auto_sync_interval', safeMinutes.toString());
+        DbKeys.webdavAutoSyncInterval, safeMinutes.toString());
   }
 }
