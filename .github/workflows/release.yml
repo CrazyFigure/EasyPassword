@@ -47,12 +47,52 @@ jobs:
       - name: Run tests
         run: flutter test
 
+      - name: Decode release keystore
+        # 从 Secrets 还原签名密钥库，保证每次发版使用同一个密钥，
+        # 否则用户无法在旧版本之上覆盖安装（签名不一致）
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          set -e
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::error::缺少 ANDROID_KEYSTORE_BASE64 Secret，无法进行正式签名"
+            exit 1
+          fi
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/upload-keystore.jks"
+          echo "keystore 已还原"
+
       - name: Build APK
         # 仅构建 arm64-v8a 单 ABI 包，显著减小体积（与 build.gradle.kts 的 abiFilters 双保险）
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/upload-keystore.jks
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: >-
           flutter build apk --release --target-platform android-arm64
           --build-name "$VERSION" --build-number "$GITHUB_RUN_NUMBER"
           --dart-define="APP_VERSION=$VERSION"
+
+      - name: Verify APK signature
+        # 硬校验产物证书指纹，杜绝静默回退到 debug 签名导致用户无法覆盖安装。
+        # 指纹与 android/app/upload-keystore.jks 中的 easypassword 别名一一对应，
+        # 若将来更换密钥库，此处必须同步更新。
+        env:
+          EXPECTED_SHA256: '07:F8:BB:97:AE:B5:7F:1C:6B:67:9D:9D:9B:E8:14:46:83:3B:A1:14:A8:42:54:7E:2A:7B:1E:1A:6F:18:44:EB'
+        run: |
+          set -e
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -name apksigner | sort -r | head -n1)"
+          echo "使用 apksigner: $APKSIGNER"
+          CERTS="$("$APKSIGNER" verify --print-certs build/app/outputs/flutter-apk/app-release.apk)"
+          echo "$CERTS"
+          # apksigner 输出的指纹为无分隔小写十六进制，需与期望值归一化后比较
+          EXPECTED_NORM="$(echo "$EXPECTED_SHA256" | tr -d ':' | tr 'A-Z' 'a-z')"
+          if echo "$CERTS" | tr -d ' ' | tr 'A-Z' 'a-z' | grep -q "sha-256digest:$EXPECTED_NORM"; then
+            echo "✅ 签名证书校验通过"
+          else
+            echo "::error::APK 签名证书与预期不符，可能回退到了 debug 签名，已中止发布"
+            exit 1
+          fi
 
       - name: Rename APK
         # 将 APK 命名为 EasyPassword-{版本号}.apk，与 Windows 安装包命名对齐
