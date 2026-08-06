@@ -1,5 +1,6 @@
 import 'package:easypassword/core/theme.dart';
 import 'package:easypassword/services/settings_service.dart';
+import 'package:easypassword/ui/common/masked_text_controller.dart';
 import 'package:easypassword/ui/common/secret_text_field.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -56,8 +57,11 @@ void main() {
     expect(find.byTooltip('隐藏测试密码'), findsOneWidget);
   });
 
-  testWidgets('移动端关闭安全键盘后仍遮挡内容并允许普通输入法', (tester) async {
-    final controller = TextEditingController(text: 'secret');
+  testWidgets('移动端关闭安全键盘后改用自绘遮挡，不再声明密码输入类型', (tester) async {
+    // 回归重点：只要 obscureText 为 true，Android 端就会给输入法叠加
+    // TYPE_TEXT_VARIATION_PASSWORD，ROM 据此强制系统安全键盘。因此关闭偏好后
+    // obscureText 必须为 false，遮挡交给控制器绘制。
+    final controller = MaskedTextEditingController(text: 'secret');
     addTearDown(controller.dispose);
     await tester.pumpWidget(
       MaterialApp(
@@ -73,7 +77,50 @@ void main() {
     );
 
     final field = tester.widget<TextField>(find.byType(TextField));
+    expect(field.obscureText, isFalse);
+    expect(field.keyboardType, TextInputType.text);
+    // 内容仍然不可见，且长按选择被关闭，避免复制到明文。
+    expect(controller.maskEnabled, isTrue);
+    expect(field.enableInteractiveSelection, isFalse);
+
+    // 点开小眼睛后恢复明文渲染。
+    await tester.tap(find.byTooltip('显示测试密码'));
+    await tester.pump();
+    expect(controller.maskEnabled, isFalse);
+  });
+
+  testWidgets('开启安全键盘时沿用系统 obscureText', (tester) async {
+    final controller = MaskedTextEditingController(text: 'secret');
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SecretTextField(
+            controller: controller,
+            copyLabel: '测试密码',
+            useSecureKeyboard: true,
+            decoration: const InputDecoration(labelText: '密码'),
+          ),
+        ),
+      ),
+    );
+
+    final field = tester.widget<TextField>(find.byType(TextField));
     expect(field.obscureText, isTrue);
-    expect(field.keyboardType, TextInputType.visiblePassword);
+    expect(controller.maskEnabled, isFalse);
+  });
+
+  test('自绘遮挡按字符数铺满圆点，与 obscureText 观感一致', () {
+    final controller = MaskedTextEditingController(text: 'secret');
+    addTearDown(controller.dispose);
+    controller.maskEnabled = true;
+    final span = controller.buildTextSpan(
+      context: _FakeBuildContext(),
+      withComposing: false,
+    );
+    expect(span.toPlainText(), '•' * 'secret'.length);
   });
 }
+
+/// buildTextSpan 在遮挡分支不触碰 context，测试里给个空实现即可。
+class _FakeBuildContext extends Fake implements BuildContext {}

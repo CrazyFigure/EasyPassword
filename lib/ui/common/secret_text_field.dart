@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 
 import '../../state/app_state.dart';
 import 'copy_util.dart';
+import 'masked_text_controller.dart';
 
 class SecretTextField extends StatefulWidget {
   final TextEditingController controller;
@@ -38,11 +39,19 @@ class _SecretTextFieldState extends State<SecretTextField> {
   bool _visible = false;
 
   @override
+  void dispose() {
+    // 控制器由外部持有并可能在别处复用，离开时复位遮挡标记避免残留。
+    final controller = widget.controller;
+    if (controller is MaskedTextEditingController) {
+      controller.maskEnabled = false;
+    }
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final obscure = !_visible;
-    // 可选参数便于独立复用和测试；应用内默认从全局设置读取。关闭安全键盘时
-    // 仍由 Flutter 绘制遮挡字符，只把 Android 输入类型切为普通可见密码，
-    // 从而允许用户选择自己的第三方输入法。
+    // 可选参数便于独立复用和测试；应用内默认从全局设置读取。
     final mobilePlatform = !kIsWeb &&
         (defaultTargetPlatform == TargetPlatform.android ||
             defaultTargetPlatform == TargetPlatform.iOS);
@@ -50,12 +59,31 @@ class _SecretTextFieldState extends State<SecretTextField> {
         (widget.useSecureKeyboard ??
             context.watch<AppState?>()?.secureKeyboardEnabled ??
             true);
+
+    // 关闭安全键盘时改由 Flutter 自绘圆点：只有 obscureText 保持 false，
+    // Android 才会把输入类型报成普通文本，第三方输入法才能被正常调起。
+    final controller = widget.controller;
+    assert(
+      useSecureKeyboard || controller is MaskedTextEditingController,
+      'SecretTextField 关闭安全键盘时需配合 MaskedTextEditingController，'
+      '否则只能退回系统安全键盘',
+    );
+    // 控制器不支持自绘时宁可继续用系统安全键盘，也不能让密码明文显示。
+    final maskInFlutter = obscure &&
+        !useSecureKeyboard &&
+        controller is MaskedTextEditingController;
+    if (controller is MaskedTextEditingController) {
+      controller.maskEnabled = maskInFlutter;
+    }
+
     return TextField(
-      controller: widget.controller,
-      obscureText: obscure,
-      keyboardType: obscure && !useSecureKeyboard
-          ? TextInputType.visiblePassword
-          : TextInputType.text,
+      controller: controller,
+      // 自绘遮挡时必须为 false，否则引擎仍会声明密码输入类型。
+      obscureText: obscure && !maskInFlutter,
+      keyboardType: TextInputType.text,
+      // 对齐 obscureText 默认关闭选择的行为，避免长按选中后复制到明文；
+      // 其余情况传 null 交还框架默认值。
+      enableInteractiveSelection: maskInFlutter ? false : null,
       autofocus: widget.autofocus,
       enabled: widget.enabled,
       enableSuggestions: false,

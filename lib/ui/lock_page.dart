@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../core/constants.dart';
 import '../state/app_state.dart';
 import 'center_dialog.dart';
+import 'common/masked_text_controller.dart';
 import 'common/secret_text_field.dart';
 import 'settings/app_lock_recover.dart';
 
@@ -18,7 +19,7 @@ class LockPage extends StatefulWidget {
 }
 
 class _LockPageState extends State<LockPage> {
-  final _pinController = TextEditingController();
+  final _pinController = MaskedTextEditingController();
   bool _error = false;
   bool _busy = false;
 

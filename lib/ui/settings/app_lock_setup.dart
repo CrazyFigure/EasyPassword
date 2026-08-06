@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/constants.dart';
 import '../../state/app_state.dart';
+import '../common/masked_text_controller.dart';
 import '../common/secret_text_field.dart';
 
 class AppLockSetupPage extends StatefulWidget {
@@ -16,8 +17,8 @@ class AppLockSetupPage extends StatefulWidget {
 }
 
 class _AppLockSetupPageState extends State<AppLockSetupPage> {
-  final _pinCtrl = TextEditingController();
-  final _pin2Ctrl = TextEditingController();
+  final _pinCtrl = MaskedTextEditingController();
+  final _pin2Ctrl = MaskedTextEditingController();
   final _questionCtrl = TextEditingController();
   final _answerCtrl = TextEditingController();
   bool _busy = false;
@@ -66,7 +67,7 @@ class _AppLockSetupPageState extends State<AppLockSetupPage> {
   }
 
   Future<void> _verifyCurrent() async {
-    final ctrl = TextEditingController();
+    final ctrl = MaskedTextEditingController();
     try {
       final ok = await showDialog<bool>(
         context: context,

@@ -9,6 +9,7 @@ import '../../services/webdav_service.dart';
 import '../../state/app_state.dart';
 import '../common/app_menu.dart';
 import '../common/confirm_dialog.dart';
+import '../common/masked_text_controller.dart';
 import '../common/secret_text_field.dart';
 
 class WebDavSetupPage extends StatefulWidget {
@@ -21,7 +22,7 @@ class WebDavSetupPage extends StatefulWidget {
 class _WebDavSetupPageState extends State<WebDavSetupPage> {
   late final TextEditingController _urlCtrl;
   late final TextEditingController _userCtrl;
-  late final TextEditingController _passCtrl;
+  late final MaskedTextEditingController _passCtrl;
   late final TextEditingController _pathCtrl;
   String? _busy; // 当前操作：test | save | local | remote | automatic
   String? _status;
@@ -31,7 +32,7 @@ class _WebDavSetupPageState extends State<WebDavSetupPage> {
     super.initState();
     _urlCtrl = TextEditingController();
     _userCtrl = TextEditingController();
-    _passCtrl = TextEditingController();
+    _passCtrl = MaskedTextEditingController();
     _pathCtrl = TextEditingController(text: WebDavDefaults.remotePath);
     _load();
   }
