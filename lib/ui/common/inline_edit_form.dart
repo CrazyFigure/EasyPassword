@@ -1,9 +1,12 @@
 /// 内联编辑组件：在卡片原处展开输入框，替代弹窗式编辑
 library;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../../core/constants.dart';
+import '../../state/app_state.dart';
 
 /// 内联编辑用的单个字段定义
 class InlineField {
@@ -113,6 +116,12 @@ class _InlineEditFormState extends State<InlineEditForm> {
 
   @override
   Widget build(BuildContext context) {
+    // 偏好虽然跨设备同步，但只在移动平台改变输入类型，桌面输入行为保持不变。
+    final mobilePlatform = !kIsWeb &&
+        (defaultTargetPlatform == TargetPlatform.android ||
+            defaultTargetPlatform == TargetPlatform.iOS);
+    final useSecureKeyboard = !mobilePlatform ||
+        (context.watch<AppState?>()?.secureKeyboardEnabled ?? true);
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(14),
@@ -136,8 +145,15 @@ class _InlineEditFormState extends State<InlineEditForm> {
           for (final f in widget.fields) ...[
             TextField(
               controller: _ctrls[f.key],
-              // 敏感字段默认遮挡，可用行尾小眼睛切换
+              // 敏感字段默认遮挡；关闭安全键盘时只调整系统输入类型，字段
+              // 内容仍保持圆点遮挡，同时禁用联想和自动纠错，避免敏感值泄漏。
               obscureText: f.obscure && !(_visible[f.key] ?? false),
+              keyboardType:
+                  f.obscure && !(_visible[f.key] ?? false) && !useSecureKeyboard
+                      ? TextInputType.visiblePassword
+                      : TextInputType.text,
+              enableSuggestions: !f.obscure,
+              autocorrect: !f.obscure,
               maxLines: f.obscure ? 1 : f.maxLines,
               autofocus: f == widget.fields.first,
               style: const TextStyle(fontSize: 14),
@@ -157,14 +173,15 @@ class _InlineEditFormState extends State<InlineEditForm> {
                           color: AppColors.textWeak,
                         ),
                         tooltip: (_visible[f.key] ?? false) ? '隐藏' : '显示',
-                        onPressed: () => setState(
-                            () => _visible[f.key] = !(_visible[f.key] ?? false)),
+                        onPressed: () => setState(() =>
+                            _visible[f.key] = !(_visible[f.key] ?? false)),
                       )
                     : null,
               ),
               // 单行字段回车即保存
-              textInputAction:
-                  f.maxLines > 1 ? TextInputAction.newline : TextInputAction.done,
+              textInputAction: f.maxLines > 1
+                  ? TextInputAction.newline
+                  : TextInputAction.done,
               onSubmitted: f.maxLines > 1 ? null : (_) => _submit(),
             ),
             const SizedBox(height: 10),

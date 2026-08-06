@@ -55,4 +55,25 @@ void main() {
     await tester.pump();
     expect(find.byTooltip('隐藏测试密码'), findsOneWidget);
   });
+
+  testWidgets('移动端关闭安全键盘后仍遮挡内容并允许普通输入法', (tester) async {
+    final controller = TextEditingController(text: 'secret');
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SecretTextField(
+            controller: controller,
+            copyLabel: '测试密码',
+            useSecureKeyboard: false,
+            decoration: const InputDecoration(labelText: '密码'),
+          ),
+        ),
+      ),
+    );
+
+    final field = tester.widget<TextField>(find.byType(TextField));
+    expect(field.obscureText, isTrue);
+    expect(field.keyboardType, TextInputType.visiblePassword);
+  });
 }

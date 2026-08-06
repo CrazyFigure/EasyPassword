@@ -127,6 +127,59 @@ void main() {
     expect(await DatabaseService.getSetting('app_lock_pin_hash'), 'pin-hash');
   });
 
+  test('远端路径会规范化且拒绝目录穿越片段', () {
+    expect(WebDavService.normalizeRemotePath(''), '/EasyPassword');
+    expect(
+      WebDavService.normalizeRemotePath(r'\backup\mobile\'),
+      '/backup/mobile',
+    );
+    expect(
+      () => WebDavService.normalizeRemotePath('/backup/../other'),
+      throwsException,
+    );
+  });
+
+  test('服务器地址已包含配置路径时仍使用同一个快照加密身份', () async {
+    await data.addItem('password', '路径兼容测试');
+    final snapshot = await webdav.buildSnapshot(
+      baseUrl: 'https://dav.example.com/dav/',
+      username: 'user',
+      password: 'pass',
+      remotePath: '/backup/mobile',
+    );
+
+    await expectLater(
+      webdav.mergeSnapshot(
+        snapshot,
+        baseUrl: 'https://dav.example.com/dav/backup/mobile/',
+        username: 'user',
+        password: 'pass',
+        remotePath: '/backup/mobile',
+      ),
+      completes,
+    );
+  });
+
+  test('旧服务器地址中的路径大小写不会在升级后改变', () async {
+    await data.addItem('password', '旧路径兼容测试');
+    final snapshot = await webdav.buildSnapshot(
+      baseUrl: 'https://dav.example.com/dav/easypassword/',
+      username: 'user',
+      password: 'pass',
+    );
+
+    await expectLater(
+      webdav.mergeSnapshot(
+        snapshot,
+        baseUrl: 'https://dav.example.com/dav/',
+        username: 'user',
+        password: 'pass',
+        remotePath: '/easypassword',
+      ),
+      completes,
+    );
+  });
+
   test('同一条目的修改与删除冲突始终由 updated_at 更新的一侧胜出', () async {
     final item = await data.addItem('password', '待删除条目');
     await data.deleteItem(item.id);

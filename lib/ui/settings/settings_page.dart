@@ -3,6 +3,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -58,6 +59,18 @@ class SettingsPage extends StatelessWidget {
               );
             },
           ),
+          if (_isMobilePlatform) ...[
+            const _Divider(),
+            _ToggleTile(
+              icon: Icons.keyboard_outlined,
+              title: '使用安全键盘',
+              subtitle: state.secureKeyboardEnabled
+                  ? '密码输入时优先使用系统安全键盘'
+                  : '允许使用其他输入法，密码仍会隐藏',
+              value: state.secureKeyboardEnabled,
+              onChanged: state.updateSecureKeyboard,
+            ),
+          ],
         ]),
         const SizedBox(height: 16),
         // ===== 显示 =====
@@ -97,7 +110,9 @@ class SettingsPage extends StatelessWidget {
             title: 'WebDAV 同步',
             subtitle: state.syncing
                 ? '同步中...'
-                : (state.syncMessage ?? '多端合并、覆盖与定时同步'),
+                : (!state.webDavEnabled
+                    ? '已关闭'
+                    : (state.syncMessage ?? '多端合并、覆盖与定时同步')),
             onTap: () => Navigator.push(
               context,
               MaterialPageRoute(builder: (_) => const WebDavSetupPage()),
@@ -133,6 +148,12 @@ class SettingsPage extends StatelessWidget {
       ],
     );
   }
+
+  /// 安全键盘由 Android/iOS 输入法实现，桌面端不展示无效设置项。
+  bool get _isMobilePlatform =>
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.iOS);
 
   Future<void> _toggleAppLock(BuildContext context, bool enable) async {
     final state = context.read<AppState>();

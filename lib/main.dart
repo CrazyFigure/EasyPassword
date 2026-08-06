@@ -2,6 +2,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 
 import 'core/theme.dart';
@@ -69,6 +70,15 @@ class _Root extends StatelessWidget {
     return MaterialApp(
       title: 'EasyPassword',
       debugShowCheckedModeBanner: false,
+      // 应用界面固定使用简体中文；补齐本地化代理后，输入框长按菜单中的
+      // Paste/Copy 等系统动作也会使用“粘贴/复制”等中文文案。
+      locale: const Locale('zh', 'CN'),
+      supportedLocales: const [Locale('zh', 'CN')],
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
       theme: AppTheme.build(
         fontFamily: state.fontFamily,
       ),

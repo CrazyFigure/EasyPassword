@@ -15,7 +15,8 @@ class DatabaseService {
   // v3：folders 新增 color 列（文件夹自定义颜色）
   // v4：设置补修改时间，并用同步日志持久记录离线期间的每次数据变更
   // v5：排序设置按密码/API Key 分区，并刷新设置同步触发器的键范围
-  static const int _version = 5;
+  // v6：安全键盘偏好加入跨设备设置，并再次刷新设置同步触发器
+  static const int _version = 6;
 
   /// 可跨设备同步的系统设置。WebDAV 凭据、设备数据密钥和同步运行状态
   /// 必须留在本机，避免远端配置覆盖后导致设备失去访问能力。
@@ -27,6 +28,7 @@ class DatabaseService {
     'sort_mode_password',
     'sort_mode_apikey',
     'reveal_all',
+    'secure_keyboard_enabled',
     'app_lock_enabled',
     'app_lock_pin_hash',
     'app_lock_salt',
@@ -155,7 +157,8 @@ class DatabaseService {
   ///          folder_id 保持 NULL（全部落在根目录），不影响现有条目。
   /// v2 → v3：folders 补 color 列，NULL 表示沿用主题默认色；
   /// v3 → v4：设置补修改时间，并建立同步变更日志与自动记录触发器；
-  /// v4 → v5：刷新设置触发器，使两个分区排序键都能记录同步日志。
+  /// v4 → v5：刷新设置触发器，使两个分区排序键都能记录同步日志；
+  /// v5 → v6：刷新设置触发器，使安全键盘偏好也能记录同步日志。
   static Future<void> _onUpgrade(
       Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
@@ -171,7 +174,7 @@ class DatabaseService {
           'ALTER TABLE settings ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0');
       await _createSyncJournalSchema(db);
     }
-    if (oldVersion >= 4 && oldVersion < 5) {
+    if (oldVersion >= 4 && oldVersion < 6) {
       await _recreateSyncSettingTriggers(db);
     }
   }

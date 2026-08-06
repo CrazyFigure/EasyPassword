@@ -68,4 +68,50 @@ void main() {
       containsAll({DbKeys.passwordSortMode, DbKeys.apikeySortMode}),
     );
   });
+
+  test('安全键盘默认开启且修改会加入跨设备同步日志', () async {
+    final settings = SettingsService();
+
+    expect(await settings.getSecureKeyboardEnabled(), isTrue);
+    await settings.setSecureKeyboardEnabled(false);
+
+    expect(await settings.getSecureKeyboardEnabled(), isFalse);
+    final rows = await (await DatabaseService.db).query(
+      'sync_journal',
+      where: 'entity_type = ? AND entity_id = ?',
+      whereArgs: ['settings', DbKeys.secureKeyboardEnabled],
+    );
+    expect(rows, hasLength(1));
+  });
+
+  test('WebDAV 总开关只保存在本机且兼容已有配置', () async {
+    final settings = SettingsService();
+
+    expect(await settings.getWebDavEnabled(), isFalse);
+    await DatabaseService.setSetting(DbKeys.webdavUrl, 'https://dav.test/dav/');
+    expect(await settings.getWebDavEnabled(), isTrue);
+
+    await settings.setWebDavEnabled(false);
+    expect(await settings.getWebDavEnabled(), isFalse);
+    final rows = await (await DatabaseService.db).query(
+      'sync_journal',
+      where: 'entity_id = ?',
+      whereArgs: [DbKeys.webdavEnabled],
+    );
+    expect(rows, isEmpty);
+  });
+
+  test('WebDAV 旧配置自动补默认路径并规范化新路径', () async {
+    final settings = SettingsService();
+    await DatabaseService.setSetting(DbKeys.webdavUrl, 'https://dav.test/dav/');
+
+    expect((await settings.getWebDavConfig())!.path, '/EasyPassword');
+    await settings.setWebDavConfig(
+      'https://dav.test/dav/',
+      'user',
+      'pass',
+      r'\backup\phone\',
+    );
+    expect((await settings.getWebDavConfig())!.path, '/backup/phone');
+  });
 }
