@@ -25,7 +25,7 @@ SetCompressor /SOLID lzma
 Name "${PRODUCT_NAME} ${VERSION}"
 OutFile "${OUTPUT}"
 InstallDir "$PROGRAMFILES64\EasyPassword"
-InstallDirRegKey HKLM "${PRODUCT_UNINST_KEY}" "UninstallString"
+InstallDirRegKey HKLM "${PRODUCT_UNINST_KEY}" "InstallLocation"
 RequestExecutionLevel admin
 
 ; 安装器自身图标（任务栏/资源管理器/任务管理器）。
@@ -53,10 +53,40 @@ VIAddVersionKey "ProductVersion" "${VERSION}"
 
 ; ---------- Install ----------
 Section "MainSection" SEC01
+  ; 升级前必须关闭旧进程，否则 Windows 可能锁住 EXE/DLL，形成新旧文件混装。
+  FindWindow $0 "FLUTTER_RUNNER_WIN32_WINDOW" "EasyPassword"
+  StrCmp $0 0 app_closed
+  MessageBox MB_YESNO|MB_ICONEXCLAMATION \
+    "EasyPassword 正在运行，安装前需要关闭。是否由安装程序立即关闭？" \
+    IDYES close_running_app IDNO cancel_install
+  close_running_app:
+    nsExec::ExecToStack '"$SYSDIR\taskkill.exe" /F /T /IM easypassword.exe'
+    Pop $1
+    Pop $2
+    Sleep 500
+    FindWindow $0 "FLUTTER_RUNNER_WIN32_WINDOW" "EasyPassword"
+    StrCmp $0 0 app_closed
+    MessageBox MB_OK|MB_ICONSTOP "无法关闭 EasyPassword，请在任务管理器中结束进程后重试。"
+    Abort
+  cancel_install:
+    Abort
+  app_closed:
+
   SetOutPath "$INSTDIR"
-  SetOverwrite ifnewer
+  ; 每次发布强制使用同一次构建的完整文件集，不能按文件时间戳选择性跳过。
+  SetOverwrite on
   ; SOURCE must be an absolute Windows path (e.g. D:\a\...\Release)
   File /r "${SOURCE}\*.*"
+  WriteUninstaller "$INSTDIR\Uninstall.exe"
+  WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "DisplayName" "${PRODUCT_NAME}"
+  WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "DisplayVersion" "${VERSION}"
+  WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "Publisher" "${PRODUCT_PUBLISHER}"
+  WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "URLInfoAbout" "${PRODUCT_WEB_SITE}"
+  WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "InstallLocation" "$INSTDIR"
+  WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "UninstallString" '"$INSTDIR\Uninstall.exe"'
+  WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "QuietUninstallString" '"$INSTDIR\Uninstall.exe" /S'
+  WriteRegDWORD HKLM "${PRODUCT_UNINST_KEY}" "NoModify" 1
+  WriteRegDWORD HKLM "${PRODUCT_UNINST_KEY}" "NoRepair" 1
   CreateDirectory "$SMPROGRAMS\EasyPassword"
   CreateShortCut "$SMPROGRAMS\EasyPassword\EasyPassword.lnk" "$INSTDIR\easypassword.exe"
   CreateShortCut "$DESKTOP\EasyPassword.lnk" "$INSTDIR\easypassword.exe"

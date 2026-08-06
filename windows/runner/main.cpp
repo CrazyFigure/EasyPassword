@@ -5,8 +5,39 @@
 #include "flutter_window.h"
 #include "utils.h"
 
+namespace {
+
+// 单实例互斥量限制在当前登录会话，避免重复点击后堆积多个后台进程。
+constexpr const wchar_t kSingleInstanceMutex[] =
+    L"Local\\CrazyFigure.EasyPassword.SingleInstance";
+
+// 已有实例可能还在等待 Flutter 首帧；再次启动时主动显示并激活它。
+void ActivateExistingInstance() {
+  HWND existing_window =
+      ::FindWindowW(L"FLUTTER_RUNNER_WIN32_WINDOW", L"EasyPassword");
+  if (existing_window == nullptr) {
+    return;
+  }
+  ::ShowWindow(existing_window, SW_RESTORE);
+  ::SetForegroundWindow(existing_window);
+}
+
+}  // namespace
+
 int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
                       _In_ wchar_t *command_line, _In_ int show_command) {
+  // 命名互斥量在窗口创建前建立，后续启动只负责唤醒已有实例。
+  HANDLE single_instance =
+      ::CreateMutexW(nullptr, TRUE, kSingleInstanceMutex);
+  if (single_instance == nullptr) {
+    return EXIT_FAILURE;
+  }
+  if (::GetLastError() == ERROR_ALREADY_EXISTS) {
+    ActivateExistingInstance();
+    ::CloseHandle(single_instance);
+    return EXIT_SUCCESS;
+  }
+
   // Attach to console when present (e.g., 'flutter run') or create a
   // new console when running with a debugger.
   if (!::AttachConsole(ATTACH_PARENT_PROCESS) && ::IsDebuggerPresent()) {
@@ -51,8 +82,13 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
     }
   }
   if (!window.Create(L"EasyPassword", origin, size)) {
+    ::ReleaseMutex(single_instance);
+    ::CloseHandle(single_instance);
+    ::CoUninitialize();
     return EXIT_FAILURE;
   }
+  // Dart 入口会先绘制启动页；这里立即显示原生窗口，初始化异常时也不会隐身。
+  window.Show();
   window.SetQuitOnClose(true);
 
   ::MSG msg;
@@ -62,5 +98,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   }
 
   ::CoUninitialize();
+  ::ReleaseMutex(single_instance);
+  ::CloseHandle(single_instance);
   return EXIT_SUCCESS;
 }

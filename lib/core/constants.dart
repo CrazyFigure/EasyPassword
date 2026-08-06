@@ -72,8 +72,12 @@ class DbKeys {
 
 /// ---- 应用信息与更新检查（对齐 GitHub Releases 版本号）----
 class AppInfo {
-  /// 当前版本：与 pubspec.yaml version 保持一致，CI 按 tag 出包（v1.1.0 -> 1.1.0）
-  static const String currentVersion = '1.1.0';
+  /// 当前版本由 CI 从发布 tag 注入，避免安装包名与应用内版本各自维护后失配。
+  /// 本地开发未传 APP_VERSION 时回退到 pubspec.yaml 的当前语义版本。
+  static const String currentVersion = String.fromEnvironment(
+    'APP_VERSION',
+    defaultValue: '0.2.0',
+  );
 
   /// GitHub 仓库主页
   static const String repoUrl = 'https://github.com/CrazyFigure/EasyPassword';

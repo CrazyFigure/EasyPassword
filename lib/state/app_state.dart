@@ -54,6 +54,8 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   Timer? _changeSyncTimer; // 连续编辑防抖，避免每个字段保存都发起独立请求
   Timer? _periodicSyncTimer; // 应用运行期间的定时同步任务
   bool _syncQueued = false; // 同步过程中又发生修改时，结束后追加一轮
+  Future<void>? _initializationFuture; // 合并并发初始化；失败后清空以支持界面重试
+  bool _observingLifecycle = false; // 防止初始化重试时重复注册生命周期观察者
 
   AppState() {
     crypto = CryptoService();
@@ -68,34 +70,59 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     appLock.onChanged = _onLocalChanged;
   }
 
-  /// 初始化：读取设置与数据
-  Future<void> init() async {
-    if (initialized) return;
-    WidgetsBinding.instance.addObserver(this);
-    await appLock.initKey();
-    appLockEnabled = await appLock.isEnabled();
-    // 未开启应用锁时直接进入主界面；开启时显示锁屏
-    locked = appLockEnabled;
-    tabConfig = await settings.getTabConfig();
-    currentTab = tabConfig.defaultTabId;
-    revealAll = await settings.getRevealAll();
-    fontSizeMode = await settings.getFontSizeMode();
-    fontFamily = await settings.getFontFamily();
-    passwordSortMode = await settings.getSortMode(ItemType.password);
-    apikeySortMode = await settings.getSortMode(ItemType.apikey);
-    autoSyncEnabled = await settings.getAutoSyncEnabled();
-    autoSyncIntervalMinutes = await settings.getAutoSyncIntervalMinutes();
-    final lastSyncValue = await DatabaseService.getSetting('sync_last_success');
-    final lastSyncMillis = int.tryParse(lastSyncValue ?? '');
-    if (lastSyncMillis != null) {
-      lastSyncAt = DateTime.fromMillisecondsSinceEpoch(lastSyncMillis);
+  /// 初始化：读取设置与数据。同一时刻只执行一次；失败时保留服务实例并允许重试。
+  Future<void> init() {
+    if (initialized) return Future.value();
+    return _initializationFuture ??= _initializeWithReset();
+  }
+
+  /// 包装实际初始化流程，确保成功或失败后都释放 Future 缓存。
+  Future<void> _initializeWithReset() async {
+    try {
+      await _initialize();
+    } finally {
+      _initializationFuture = null;
     }
-    await refresh();
-    initialized = true;
-    await _restartPeriodicSync();
-    notifyListeners();
-    // 启动后异步拉取一次，及时接收应用关闭期间其他设备的修改。
-    _scheduleAutomaticSync(const Duration(milliseconds: 800));
+  }
+
+  /// 实际初始化流程；任何步骤失败都回滚运行态标记，避免重试误判为成功。
+  Future<void> _initialize() async {
+    if (!_observingLifecycle) {
+      WidgetsBinding.instance.addObserver(this);
+      _observingLifecycle = true;
+    }
+    try {
+      await appLock.initKey();
+      appLockEnabled = await appLock.isEnabled();
+      // 未开启应用锁时直接进入主界面；开启时显示锁屏
+      locked = appLockEnabled;
+      tabConfig = await settings.getTabConfig();
+      currentTab = tabConfig.defaultTabId;
+      revealAll = await settings.getRevealAll();
+      fontSizeMode = await settings.getFontSizeMode();
+      fontFamily = await settings.getFontFamily();
+      passwordSortMode = await settings.getSortMode(ItemType.password);
+      apikeySortMode = await settings.getSortMode(ItemType.apikey);
+      autoSyncEnabled = await settings.getAutoSyncEnabled();
+      autoSyncIntervalMinutes = await settings.getAutoSyncIntervalMinutes();
+      final lastSyncValue =
+          await DatabaseService.getSetting('sync_last_success');
+      final lastSyncMillis = int.tryParse(lastSyncValue ?? '');
+      if (lastSyncMillis != null) {
+        lastSyncAt = DateTime.fromMillisecondsSinceEpoch(lastSyncMillis);
+      }
+      await refresh();
+      initialized = true;
+      await _restartPeriodicSync();
+      notifyListeners();
+      // 启动后异步拉取一次，及时接收应用关闭期间其他设备的修改。
+      _scheduleAutomaticSync(const Duration(milliseconds: 800));
+    } catch (_) {
+      initialized = false;
+      _changeSyncTimer?.cancel();
+      _periodicSyncTimer?.cancel();
+      rethrow;
+    }
   }
 
   /// 仅预览字体设置，不落库；设置页取消或返回时可无缝恢复原值。
@@ -373,7 +400,9 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
 
   @override
   void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
+    if (_observingLifecycle) {
+      WidgetsBinding.instance.removeObserver(this);
+    }
     _changeSyncTimer?.cancel();
     _periodicSyncTimer?.cancel();
     super.dispose();

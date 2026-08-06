@@ -1,7 +1,7 @@
 name: easypassword
 description: "EasyPassword - 保存与查看密码的跨平台应用（Android + Windows）"
 publish_to: "none"
-version: 1.1.0+1
+version: 0.2.0+1
 
 environment:
   sdk: ">=3.4.0 <4.0.0"

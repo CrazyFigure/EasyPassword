@@ -33,17 +33,30 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      - name: Resolve release version
+        shell: bash
+        run: |
+          set -e
+          VERSION="${GITHUB_REF_NAME#v}"
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::发布标签必须使用 v主版本.次版本.修订号，例如 v0.2.1"
+            exit 1
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
       - name: Run tests
         run: flutter test
 
       - name: Build APK
         # 仅构建 arm64-v8a 单 ABI 包，显著减小体积（与 build.gradle.kts 的 abiFilters 双保险）
-        run: flutter build apk --release --target-platform android-arm64
+        run: >-
+          flutter build apk --release --target-platform android-arm64
+          --build-name "$VERSION" --build-number "$GITHUB_RUN_NUMBER"
+          --dart-define="APP_VERSION=$VERSION"
 
       - name: Rename APK
         # 将 APK 命名为 EasyPassword-{版本号}.apk，与 Windows 安装包命名对齐
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
           cp build/app/outputs/flutter-apk/app-release.apk "EasyPassword-${VERSION}.apk"
           echo "APK renamed to EasyPassword-${VERSION}.apk"
 
@@ -69,11 +82,25 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      - name: Resolve release version
+        shell: bash
+        run: |
+          set -e
+          VERSION="${GITHUB_REF_NAME#v}"
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::发布标签必须使用 v主版本.次版本.修订号，例如 v0.2.1"
+            exit 1
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
       - name: Run tests
         run: flutter test
 
       - name: Build Windows release
-        run: flutter build windows --release
+        run: >-
+          flutter build windows --release --build-name "$env:VERSION"
+          --build-number "$env:GITHUB_RUN_NUMBER"
+          --dart-define="APP_VERSION=$env:VERSION"
 
       - name: Install NSIS
         run: choco install nsis -y
@@ -82,8 +109,6 @@ jobs:
         shell: bash
         run: |
           set -e
-          # 从 tag 中提取版本号（v1.2.3 -> 1.2.3）
-          VERSION="${GITHUB_REF_NAME#v}"
           mkdir -p dist
           # 定位 makensis（choco 安装路径随版本变化，逐个探测）
           echo "=== 探测 makensis ==="
