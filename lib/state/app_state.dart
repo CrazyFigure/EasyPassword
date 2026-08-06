@@ -1,7 +1,9 @@
 /// 应用全局状态（Provider）：数据加载、Tab、显示开关、同步等
 library;
 
-import 'package:flutter/foundation.dart';
+import 'dart:async';
+
+import 'package:flutter/widgets.dart';
 
 import '../core/constants.dart';
 import '../models/folder.dart';
@@ -10,11 +12,12 @@ import '../models/password_item.dart';
 import '../services/app_lock_service.dart';
 import '../services/crypto_service.dart';
 import '../services/data_service.dart';
+import '../services/database.dart';
 import '../services/search_service.dart';
 import '../services/settings_service.dart';
 import '../services/webdav_service.dart';
 
-class AppState extends ChangeNotifier {
+class AppState extends ChangeNotifier with WidgetsBindingObserver {
   // 服务实例
   late final CryptoService crypto;
   late final DataService data;
@@ -40,7 +43,14 @@ class AppState extends ChangeNotifier {
   bool revealAll = false;
   bool syncing = false;
   String? syncMessage;
+  bool autoSyncEnabled = true; // 修改后即时同步与前台定时同步总开关
+  int autoSyncIntervalMinutes = 15; // 前台定时拉取其他设备变更的间隔
+  DateTime? lastSyncAt; // 最近一次成功同步时间
   TabConfig tabConfig = TabConfig.defaultConfig; // 底部栏配置（缓存）
+
+  Timer? _changeSyncTimer; // 连续编辑防抖，避免每个字段保存都发起独立请求
+  Timer? _periodicSyncTimer; // 应用运行期间的定时同步任务
+  bool _syncQueued = false; // 同步过程中又发生修改时，结束后追加一轮
 
   AppState() {
     crypto = CryptoService();
@@ -49,11 +59,16 @@ class AppState extends ChangeNotifier {
     settings = SettingsService();
     appLock = AppLockService(crypto);
     webdav = WebDavService(crypto, data);
+    // 三类本地修改统一进入同一防抖队列，保存本身不等待网络。
+    data.onChanged = _onLocalChanged;
+    settings.onChanged = _onLocalChanged;
+    appLock.onChanged = _onLocalChanged;
   }
 
   /// 初始化：读取设置与数据
   Future<void> init() async {
     if (initialized) return;
+    WidgetsBinding.instance.addObserver(this);
     await appLock.initKey();
     appLockEnabled = await appLock.isEnabled();
     // 未开启应用锁时直接进入主界面；开启时显示锁屏
@@ -63,9 +78,19 @@ class AppState extends ChangeNotifier {
     revealAll = await settings.getRevealAll();
     fontScale = await settings.getFontScale();
     sortMode = await settings.getSortMode();
+    autoSyncEnabled = await settings.getAutoSyncEnabled();
+    autoSyncIntervalMinutes = await settings.getAutoSyncIntervalMinutes();
+    final lastSyncValue = await DatabaseService.getSetting('sync_last_success');
+    final lastSyncMillis = int.tryParse(lastSyncValue ?? '');
+    if (lastSyncMillis != null) {
+      lastSyncAt = DateTime.fromMillisecondsSinceEpoch(lastSyncMillis);
+    }
     await refresh();
     initialized = true;
+    await _restartPeriodicSync();
     notifyListeners();
+    // 启动后异步拉取一次，及时接收应用关闭期间其他设备的修改。
+    _scheduleAutomaticSync(const Duration(milliseconds: 800));
   }
 
   /// 更新字体缩放并缓存
@@ -167,29 +192,137 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 同步（WebDAV 已配置时）
-  Future<void> syncNow() async {
+  /// 保存 WebDAV 配置并立即验证/创建 EasyPassword 远端文件夹。
+  Future<void> saveWebDavConfig(
+      String url, String username, String password) async {
+    await webdav.testConnection(url, username, password);
+    await settings.setWebDavConfig(url, username, password);
+    await _restartPeriodicSync();
+    _scheduleAutomaticSync(const Duration(milliseconds: 300));
+  }
+
+  /// 更新自动同步策略。关闭后仍可使用三种手动同步按钮。
+  Future<void> updateAutoSync({required bool enabled, int? minutes}) async {
+    autoSyncEnabled = enabled;
+    if (minutes != null) {
+      autoSyncIntervalMinutes = minutes;
+      await settings.setAutoSyncIntervalMinutes(minutes);
+    }
+    await settings.setAutoSyncEnabled(enabled);
+    await _restartPeriodicSync();
+    notifyListeners();
+    if (enabled) _scheduleAutomaticSync(const Duration(milliseconds: 300));
+  }
+
+  /// 执行三种同步模式。自动模式逐行合并；两个覆盖模式由界面二次确认。
+  Future<void> syncNow({
+    WebDavSyncMode mode = WebDavSyncMode.automatic,
+    bool background = false,
+  }) async {
     final cfg = await settings.getWebDavConfig();
     if (cfg == null) {
       syncMessage = '尚未配置 WebDAV';
       notifyListeners();
       return;
     }
+    if (syncing) {
+      _syncQueued = true;
+      return;
+    }
     syncing = true;
-    syncMessage = '同步中...';
+    if (!background) syncMessage = '同步中...';
     notifyListeners();
     try {
-      final summary = await webdav.syncAll(cfg.url, cfg.user, cfg.pass);
-      syncMessage = summary.merged > 0
-          ? '同步完成，合并 ${summary.merged} 条'
-          : '同步完成';
-      await refresh();
+      final SyncSummary summary;
+      switch (mode) {
+        case WebDavSyncMode.localToRemote:
+          summary = await webdav.overwriteRemote(cfg.url, cfg.user, cfg.pass);
+          break;
+        case WebDavSyncMode.remoteToLocal:
+          summary = await webdav.overwriteLocal(cfg.url, cfg.user, cfg.pass);
+          break;
+        case WebDavSyncMode.automatic:
+          summary = await webdav.syncAll(cfg.url, cfg.user, cfg.pass);
+          break;
+      }
+      lastSyncAt = DateTime.now();
+      await DatabaseService.setSetting(
+        'sync_last_success',
+        lastSyncAt!.millisecondsSinceEpoch.toString(),
+      );
+      syncMessage = switch (mode) {
+        WebDavSyncMode.localToRemote => '本地数据已覆盖远端',
+        WebDavSyncMode.remoteToLocal => '远端数据已覆盖本地',
+        WebDavSyncMode.automatic =>
+          summary.merged > 0 ? '自动同步完成，合并 ${summary.merged} 个条目' : '自动同步完成',
+      };
+      await _reloadAfterSync();
     } catch (e) {
-      syncMessage =
-          '同步失败：${e.toString().replaceFirst('Exception: ', '')}';
+      final prefix = background ? '自动同步失败' : '同步失败';
+      syncMessage = '$prefix：${e.toString().replaceFirst('Exception: ', '')}';
     } finally {
       syncing = false;
       notifyListeners();
+      if (_syncQueued) {
+        _syncQueued = false;
+        _scheduleAutomaticSync(const Duration(milliseconds: 500));
+      }
+    }
+  }
+
+  /// 远端设置可能改变字体、导航、排序和应用锁，合并后必须整体刷新缓存。
+  Future<void> _reloadAfterSync() async {
+    final wasLockEnabled = appLockEnabled;
+    appLockEnabled = await appLock.isEnabled();
+    tabConfig = await settings.getTabConfig();
+    revealAll = await settings.getRevealAll();
+    fontScale = await settings.getFontScale();
+    sortMode = await settings.getSortMode();
+    if (!tabConfig.visibleIds.contains(currentTab)) {
+      currentTab = tabConfig.defaultTabId;
+    }
+    // 其他设备切换应用锁时本机立即跟随；锁状态未变化则不打断已解锁会话。
+    if (wasLockEnabled != appLockEnabled) locked = appLockEnabled;
+    await refresh();
+  }
+
+  /// 每次业务或可同步设置变更后延迟一小段时间合并发送；断网失败时日志
+  /// 会保留，定时任务或恢复到前台后继续重试。
+  Future<void> _onLocalChanged() async {
+    if (!initialized || !autoSyncEnabled) return;
+    if (syncing) {
+      _syncQueued = true;
+      return;
+    }
+    _scheduleAutomaticSync(const Duration(seconds: 2));
+  }
+
+  void _scheduleAutomaticSync(Duration delay) {
+    if (!initialized || !autoSyncEnabled) return;
+    _changeSyncTimer?.cancel();
+    _changeSyncTimer = Timer(delay, () async {
+      final cfg = await settings.getWebDavConfig();
+      if (cfg == null || !autoSyncEnabled) return;
+      await syncNow(background: true);
+    });
+  }
+
+  /// 应用运行期间周期拉取远端，既重试离线修改，也接收其他设备的变化。
+  Future<void> _restartPeriodicSync() async {
+    _periodicSyncTimer?.cancel();
+    if (!initialized || !autoSyncEnabled) return;
+    final cfg = await settings.getWebDavConfig();
+    if (cfg == null) return;
+    _periodicSyncTimer = Timer.periodic(
+      Duration(minutes: autoSyncIntervalMinutes),
+      (_) => unawaited(syncNow(background: true)),
+    );
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _scheduleAutomaticSync(const Duration(milliseconds: 500));
     }
   }
 
@@ -200,7 +333,17 @@ class AppState extends ChangeNotifier {
       await appLock.unlockWithPin(pin);
       locked = false;
       notifyListeners();
+      // 解锁后已具备旧快照迁移密钥，立即重试一次自动同步完成格式升级。
+      _scheduleAutomaticSync(const Duration(milliseconds: 500));
     }
     return ok;
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _changeSyncTimer?.cancel();
+    _periodicSyncTimer?.cancel();
+    super.dispose();
   }
 }

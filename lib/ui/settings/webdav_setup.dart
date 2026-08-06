@@ -1,12 +1,13 @@
-/// WebDAV 同步设置页（需求 3.5.3 / 4）
-/// 三个独立操作：测试连接 → 保存配置 → 立即同步
+/// WebDAV 多端同步设置页：连接配置、三种同步方向与自动同步策略。
 library;
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/constants.dart';
+import '../../services/webdav_service.dart';
 import '../../state/app_state.dart';
+import '../common/confirm_dialog.dart';
 
 class WebDavSetupPage extends StatefulWidget {
   const WebDavSetupPage({super.key});
@@ -19,7 +20,7 @@ class _WebDavSetupPageState extends State<WebDavSetupPage> {
   late final TextEditingController _urlCtrl;
   late final TextEditingController _userCtrl;
   late final TextEditingController _passCtrl;
-  String? _busy; // 进行中的操作：test | save | sync
+  String? _busy; // 当前操作：test | save | local | remote | automatic
   String? _status;
 
   @override
@@ -28,101 +29,102 @@ class _WebDavSetupPageState extends State<WebDavSetupPage> {
     _urlCtrl = TextEditingController();
     _userCtrl = TextEditingController();
     _passCtrl = TextEditingController();
-    // 监听地址变化：输入坚果云根路径时实时给出友好提示（避免同步时才报错）
-    _urlCtrl.addListener(_onUrlChanged);
     _load();
-  }
-
-  /// 地址变化时刷新界面，触发坚果云路径提示的显示/隐藏
-  void _onUrlChanged() {
-    if (!mounted) return;
-    setState(() {});
-  }
-
-  /// 判断是否为坚果云根目录（/dav 或 /dav/，其后无子目录）
-  /// 坚果云不允许直接写入根目录，需在网页端先建子文件夹
-  bool _isJianguoyunRootPath(String url) {
-    final uri = Uri.tryParse(url.trim());
-    if (uri == null) return false;
-    if (uri.host.toLowerCase() != 'dav.jianguoyun.com') return false;
-    // 路径段去掉空段后：['dav'] 视为根；含子目录则不再提示
-    final segs = uri.pathSegments.where((s) => s.isNotEmpty).toList();
-    return segs.length <= 1;
-  }
-
-  /// 一键填入建议的子目录路径（需用户在网页端先创建同名文件夹）
-  void _fillSuggestedPath() {
-    _urlCtrl.text = 'https://dav.jianguoyun.com/dav/EasyPassword/';
-    // 光标移到末尾，便于继续编辑
-    _urlCtrl.selection =
-        TextSelection.collapsed(offset: _urlCtrl.text.length);
   }
 
   Future<void> _load() async {
     final state = context.read<AppState>();
-    final cfg = await state.settings.getWebDavConfig();
-    if (cfg != null && mounted) {
-      _urlCtrl.text = cfg.url;
-      _userCtrl.text = cfg.user;
-      _passCtrl.text = cfg.pass;
+    final config = await state.settings.getWebDavConfig();
+    if (config != null && mounted) {
+      setState(() {
+        _urlCtrl.text = config.url;
+        _userCtrl.text = config.user;
+        _passCtrl.text = config.pass;
+      });
     }
   }
 
   @override
   void dispose() {
-    _urlCtrl.removeListener(_onUrlChanged);
     _urlCtrl.dispose();
     _userCtrl.dispose();
     _passCtrl.dispose();
     super.dispose();
   }
 
-  /// 测试连接：用当前表单值探测服务器（不保存）
+  /// 测试连接也会验证写权限并自动创建 EasyPassword 子目录，但不保存表单。
   Future<void> _testConnection() async {
     final url = _urlCtrl.text.trim();
     if (url.isEmpty) {
-      _setStatus('请填写 WebDAV 服务器地址');
+      _setStatus('请填写 WebDAV 根地址');
       return;
     }
     setState(() => _busy = 'test');
     try {
       await context.read<AppState>().webdav.testConnection(
-          url, _userCtrl.text.trim(), _passCtrl.text);
-      _setStatus('连接成功，WebDAV 服务可用');
-    } catch (e) {
-      _setStatus(_fmtError(e));
+            url,
+            _userCtrl.text.trim(),
+            _passCtrl.text,
+          );
+      _setStatus('连接成功，EasyPassword 文件夹已就绪');
+    } catch (error) {
+      _setStatus(_formatError(error));
     } finally {
       if (mounted) setState(() => _busy = null);
     }
   }
 
-  /// 保存配置：仅写入本地设置（不同步）
+  /// 保存前完成连接与目录创建，避免出现“配置保存了但首次同步才发现不可写”。
   Future<void> _saveConfig() async {
     final url = _urlCtrl.text.trim();
     if (url.isEmpty) {
-      _setStatus('请填写 WebDAV 服务器地址');
+      _setStatus('请填写 WebDAV 根地址');
       return;
     }
     setState(() => _busy = 'save');
     try {
-      await context.read<AppState>().settings
-          .setWebDavConfig(url, _userCtrl.text.trim(), _passCtrl.text);
-      _setStatus('配置已保存');
+      await context.read<AppState>().saveWebDavConfig(
+            url,
+            _userCtrl.text.trim(),
+            _passCtrl.text,
+          );
+      _setStatus('配置已保存，自动同步已开始运行');
+    } catch (error) {
+      _setStatus(_formatError(error));
     } finally {
       if (mounted) setState(() => _busy = null);
     }
   }
 
-  /// 立即同步：使用已保存的配置执行拉取合并推送
-  Future<void> _syncNow() async {
+  /// 执行同步操作；两个覆盖方向会先明确告知被替换的一端。
+  Future<void> _runSync(WebDavSyncMode mode) async {
     final state = context.read<AppState>();
-    final cfg = await state.settings.getWebDavConfig();
-    if (cfg == null) {
-      _setStatus('尚未保存配置，请先点击「保存配置」');
+    if (await state.settings.getWebDavConfig() == null) {
+      _setStatus('尚未保存配置，请先点击“保存配置”');
       return;
     }
-    setState(() => _busy = 'sync');
-    await state.syncNow();
+    if (!mounted) return;
+    if (mode != WebDavSyncMode.automatic) {
+      final localToRemote = mode == WebDavSyncMode.localToRemote;
+      final confirmed = await showConfirmDialog(
+        context: context,
+        title: localToRemote ? '本地覆盖远端' : '远端覆盖本地',
+        content: localToRemote
+            ? '远端快照将被当前设备的数据完整替换。确定继续吗？'
+            : '当前设备的密码、API Key 和同步设置将被远端快照完整替换。确定继续吗？',
+        confirmText: '继续覆盖',
+        isDangerous: true,
+      );
+      if (confirmed != true || !mounted) return;
+    }
+
+    final operation = switch (mode) {
+      WebDavSyncMode.localToRemote => 'local',
+      WebDavSyncMode.remoteToLocal => 'remote',
+      WebDavSyncMode.automatic => 'automatic',
+    };
+    setState(() => _busy = operation);
+    await state.syncNow(mode: mode);
     if (!mounted) return;
     setState(() {
       _busy = null;
@@ -130,69 +132,20 @@ class _WebDavSetupPageState extends State<WebDavSetupPage> {
     });
   }
 
-  void _setStatus(String msg) {
+  void _setStatus(String message) {
     if (!mounted) return;
-    setState(() => _status = msg);
+    setState(() => _status = message);
   }
 
-  String _fmtError(Object e) => e.toString().replaceFirst('Exception: ', '');
+  String _formatError(Object error) =>
+      error.toString().replaceFirst('Exception: ', '');
 
-  /// 坚果云根路径友好提示卡：在输入阶段提前告知，避免同步时才报 403
-  Widget _buildJianguoyunHint() {
-    // 温和的警示底色（浅黄），区别于错误红与成功绿
-    const bg = Color(0xFFFFF8E1);
-    const border = Color(0xFFFFE082);
-    const iconColor = Color(0xFFF59E0B);
-    return Container(
-      margin: const EdgeInsets.only(top: 10),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Row(
-            children: [
-              Icon(Icons.info_outline, size: 18, color: iconColor),
-              SizedBox(width: 6),
-              Text(
-                '坚果云路径提示',
-                style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.textMain),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          const Text(
-            '坚果云不允许直接写入根目录 /dav/，需先在网页端（www.jianguoyun.com）'
-            '新建一个子文件夹，并把地址改为该子文件夹的路径，否则同步会失败。',
-            style: TextStyle(fontSize: 12, height: 1.5, color: AppColors.textMain),
-          ),
-          const SizedBox(height: 8),
-          // 一键填入建议路径
-          Align(
-            alignment: Alignment.centerRight,
-            child: TextButton.icon(
-              onPressed: _fillSuggestedPath,
-              style: TextButton.styleFrom(
-                foregroundColor: AppColors.primaryDark,
-                visualDensity: VisualDensity.compact,
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-              ),
-              icon: const Icon(Icons.auto_fix_high, size: 15),
-              label: const Text('填入建议路径',
-                  style: TextStyle(fontSize: 12)),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  bool _isErrorStatus(String value) =>
+      value.contains('失败') ||
+      value.contains('拒') ||
+      value.contains('无效') ||
+      value.contains('不能') ||
+      value.contains('不存在');
 
   Widget _spinner(Color color) => SizedBox(
         width: 18,
@@ -202,34 +155,91 @@ class _WebDavSetupPageState extends State<WebDavSetupPage> {
 
   @override
   Widget build(BuildContext context) {
-    final busy = _busy != null;
+    final state = context.watch<AppState>();
+    final busy = _busy != null || state.syncing;
     return Scaffold(
       appBar: AppBar(title: const Text('WebDAV 同步')),
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: AppColors.primaryLightBg,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: const Text(
-              '支持坚果云等标准 WebDAV 服务。数据以加密快照存储，本地与远端均不保存明文。',
-              style: TextStyle(fontSize: 13, color: AppColors.textMain),
+          Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 760),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _buildIntro(),
+                  const SizedBox(height: 20),
+                  _buildConnectionCard(busy),
+                  const SizedBox(height: 22),
+                  const _SectionTitle('同步方向'),
+                  const SizedBox(height: 10),
+                  _buildSyncActions(busy),
+                  const SizedBox(height: 22),
+                  const _SectionTitle('自动同步'),
+                  const SizedBox(height: 10),
+                  _buildAutomaticSettings(state, busy),
+                  if (_status != null) ...[
+                    const SizedBox(height: 16),
+                    _StatusBanner(
+                      message: _status!,
+                      isError: _isErrorStatus(_status!),
+                    ),
+                  ],
+                ],
+              ),
             ),
           ),
-          const SizedBox(height: 20),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildIntro() {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.primaryLightBg,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: const Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.enhanced_encryption_outlined,
+              size: 20, color: AppColors.primaryDark),
+          SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              '密码、API Key、应用锁和显示设置会以加密快照同步。应用将在根地址下自动创建 EasyPassword 文件夹。',
+              style: TextStyle(
+                  fontSize: 13, height: 1.5, color: AppColors.textMain),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildConnectionCard(bool busy) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        children: [
           TextField(
             controller: _urlCtrl,
             keyboardType: TextInputType.url,
             decoration: const InputDecoration(
-              labelText: '服务器地址',
-              hintText: 'https://dav.example.com/easypassword/',
+              labelText: 'WebDAV 根地址',
+              hintText: 'https://dav.example.com/dav/',
+              helperText: '无需手动创建 EasyPassword 文件夹',
             ),
           ),
-          // 输入坚果云根路径时，输入阶段即友好提醒（无需等到同步报错）
-          if (_isJianguoyunRootPath(_urlCtrl.text)) _buildJianguoyunHint(),
           const SizedBox(height: 12),
           TextField(
             controller: _userCtrl,
@@ -241,49 +251,285 @@ class _WebDavSetupPageState extends State<WebDavSetupPage> {
             obscureText: true,
             decoration: const InputDecoration(labelText: '密码（应用密码）'),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 18),
           Row(
             children: [
               Expanded(
-                child: OutlinedButton(
+                child: OutlinedButton.icon(
                   onPressed: busy ? null : _testConnection,
-                  child: _busy == 'test'
+                  icon: _busy == 'test'
                       ? _spinner(AppColors.primaryDark)
-                      : const Text('测试连接'),
+                      : const Icon(Icons.wifi_tethering, size: 18),
+                  label: const Text('测试连接'),
                 ),
               ),
               const SizedBox(width: 10),
               Expanded(
-                child: OutlinedButton(
+                child: FilledButton.icon(
                   onPressed: busy ? null : _saveConfig,
-                  child: _busy == 'save'
-                      ? _spinner(AppColors.primaryDark)
-                      : const Text('保存配置'),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: FilledButton(
-                  onPressed: busy ? null : _syncNow,
-                  child: _busy == 'sync'
+                  icon: _busy == 'save'
                       ? _spinner(Colors.white)
-                      : const Text('立即同步'),
+                      : const Icon(Icons.cloud_done_outlined, size: 18),
+                  label: const Text('保存配置'),
                 ),
               ),
             ],
           ),
-          if (_status != null) ...[
-            const SizedBox(height: 16),
-            Center(
-              child: Text(_status!,
-                  style: TextStyle(
-                      fontSize: 13,
-                      color: _status!.contains('失败')
-                          ? AppColors.danger
-                          : AppColors.success)),
+        ],
+      ),
+    );
+  }
+
+  /// 三个方向动作在窄屏纵向排列，宽屏并排；每张卡都通过 InkWell 提供
+  /// Hover、按压水波纹和禁用反馈。
+  Widget _buildSyncActions(bool busy) {
+    final actions = [
+      _SyncActionCard(
+        icon: Icons.cloud_upload_outlined,
+        title: '本地覆盖远端',
+        subtitle: '强制上传当前设备全部数据',
+        busy: _busy == 'local',
+        enabled: !busy,
+        onTap: () => _runSync(WebDavSyncMode.localToRemote),
+      ),
+      _SyncActionCard(
+        icon: Icons.cloud_download_outlined,
+        title: '远端覆盖本地',
+        subtitle: '强制用远端快照替换本机',
+        busy: _busy == 'remote',
+        enabled: !busy,
+        onTap: () => _runSync(WebDavSyncMode.remoteToLocal),
+      ),
+      _SyncActionCard(
+        icon: Icons.sync,
+        title: '自动同步',
+        subtitle: '按修改时间合并后双向更新',
+        busy: _busy == 'automatic',
+        enabled: !busy,
+        emphasized: true,
+        onTap: () => _runSync(WebDavSyncMode.automatic),
+      ),
+    ];
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth >= 680) {
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              for (var i = 0; i < actions.length; i++) ...[
+                if (i > 0) const SizedBox(width: 10),
+                Expanded(child: actions[i]),
+              ],
+            ],
+          );
+        }
+        return Column(
+          children: [
+            for (var i = 0; i < actions.length; i++) ...[
+              if (i > 0) const SizedBox(height: 10),
+              actions[i],
+            ],
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildAutomaticSettings(AppState state, bool busy) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        children: [
+          SwitchListTile(
+            secondary:
+                const Icon(Icons.bolt_outlined, color: AppColors.primary),
+            title: const Text('修改后自动同步'),
+            subtitle: const Text('断网时保留变更，恢复联网后自动重试'),
+            value: state.autoSyncEnabled,
+            activeTrackColor: AppColors.primary,
+            onChanged: busy
+                ? null
+                : (enabled) => state.updateAutoSync(enabled: enabled),
+          ),
+          const Divider(height: 1, indent: 56, color: AppColors.divider),
+          ListTile(
+            leading:
+                const Icon(Icons.schedule_outlined, color: AppColors.primary),
+            title: const Text('定时同步'),
+            subtitle: const Text('应用运行期间定期拉取其他设备的修改'),
+            trailing: DropdownButton<int>(
+              value: state.autoSyncIntervalMinutes,
+              underline: const SizedBox.shrink(),
+              onChanged: !state.autoSyncEnabled || busy
+                  ? null
+                  : (minutes) {
+                      if (minutes != null) {
+                        state.updateAutoSync(enabled: true, minutes: minutes);
+                      }
+                    },
+              items: const [
+                DropdownMenuItem(value: 5, child: Text('5 分钟')),
+                DropdownMenuItem(value: 15, child: Text('15 分钟')),
+                DropdownMenuItem(value: 30, child: Text('30 分钟')),
+                DropdownMenuItem(value: 60, child: Text('60 分钟')),
+              ],
+            ),
+          ),
+          if (state.lastSyncAt != null) ...[
+            const Divider(height: 1, indent: 56, color: AppColors.divider),
+            ListTile(
+              leading: const Icon(Icons.history, color: AppColors.primary),
+              title: const Text('最近同步'),
+              subtitle: Text(_formatTime(state.lastSyncAt!)),
             ),
           ],
         ],
+      ),
+    );
+  }
+
+  String _formatTime(DateTime time) {
+    String two(int value) => value.toString().padLeft(2, '0');
+    return '${time.year}-${two(time.month)}-${two(time.day)} '
+        '${two(time.hour)}:${two(time.minute)}:${two(time.second)}';
+  }
+}
+
+class _SectionTitle extends StatelessWidget {
+  final String text;
+  const _SectionTitle(this.text);
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      text,
+      style: const TextStyle(
+        fontSize: 14,
+        fontWeight: FontWeight.w700,
+        color: AppColors.textMain,
+      ),
+    );
+  }
+}
+
+class _SyncActionCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final bool busy;
+  final bool enabled;
+  final bool emphasized;
+  final VoidCallback onTap;
+
+  const _SyncActionCard({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.busy,
+    required this.enabled,
+    required this.onTap,
+    this.emphasized = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final background = emphasized ? AppColors.primaryLightBg : Colors.white;
+    return Material(
+      color: enabled ? background : AppColors.background,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(
+          color: emphasized ? AppColors.primary : AppColors.border,
+        ),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: enabled ? onTap : null,
+        hoverColor: AppColors.primary.withValues(alpha: 0.06),
+        splashColor: AppColors.primary.withValues(alpha: 0.12),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            children: [
+              if (busy)
+                const SizedBox(
+                  width: 22,
+                  height: 22,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              else
+                Icon(icon,
+                    size: 24,
+                    color:
+                        enabled ? AppColors.primaryDark : AppColors.textFaint),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color:
+                            enabled ? AppColors.textMain : AppColors.textFaint,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      subtitle,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        height: 1.35,
+                        color: AppColors.textWeak,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right,
+                  size: 18, color: AppColors.textFaint),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _StatusBanner extends StatelessWidget {
+  final String message;
+  final bool isError;
+  const _StatusBanner({required this.message, required this.isError});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = isError ? AppColors.danger : AppColors.success;
+    return Semantics(
+      liveRegion: true,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: color.withValues(alpha: 0.25)),
+        ),
+        child: Row(
+          children: [
+            Icon(isError ? Icons.error_outline : Icons.check_circle_outline,
+                size: 18, color: color),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(message,
+                  style: TextStyle(fontSize: 13, height: 1.4, color: color)),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -35,7 +35,7 @@ class SettingsPage extends StatelessWidget {
                   color: AppColors.textMain)),
         ),
         // ===== 安全 =====
-        _SectionLabel('安全'),
+        const _SectionLabel('安全'),
         _SettingsCard(children: [
           _ToggleTile(
             icon: Icons.lock_outline,
@@ -54,8 +54,7 @@ class SettingsPage extends StatelessWidget {
               if (!context.mounted) return;
               Navigator.push(
                 context,
-                MaterialPageRoute(
-                    builder: (_) => const AppLockSetupPage()),
+                MaterialPageRoute(builder: (_) => const AppLockSetupPage()),
               );
             },
           ),
@@ -95,21 +94,14 @@ class SettingsPage extends StatelessWidget {
           _ActionTile(
             icon: Icons.sync_outlined,
             title: 'WebDAV 同步',
-            subtitle: state.syncMessage ?? '配置服务器以多端同步',
+            subtitle: state.syncing
+                ? '同步中...'
+                : (state.syncMessage ?? '多端合并、覆盖与定时同步'),
             onTap: () => Navigator.push(
               context,
               MaterialPageRoute(builder: (_) => const WebDavSetupPage()),
             ),
           ),
-          if (state.syncMessage != null) ...[
-            const _Divider(),
-            _ActionTile(
-              icon: Icons.cloud_sync_outlined,
-              title: '立即同步',
-              subtitle: state.syncing ? '同步中...' : '拉取并推送加密快照',
-              onTap: state.syncing ? null : () => state.syncNow(),
-            ),
-          ],
         ]),
         const SizedBox(height: 16),
         // ===== 关于 =====
@@ -167,7 +159,7 @@ class SettingsPage extends StatelessWidget {
       );
       if (ok == true) {
         await state.appLock.disable();
-        state.refresh();
+        await state.refreshAppLock();
       }
     }
   }
@@ -212,8 +204,7 @@ class _Divider extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Divider(
-        height: 1, indent: 56, color: AppColors.divider);
+    return const Divider(height: 1, indent: 56, color: AppColors.divider);
   }
 }
 
