@@ -12,8 +12,10 @@ import '../../state/app_state.dart';
 import '../center_dialog.dart';
 import '../common/confirm_dialog.dart';
 import '../common/copy_util.dart';
+import '../common/detail_field_row.dart';
 import '../common/drag_handle.dart';
 import '../common/inline_edit_form.dart';
+import '../common/row_action_menu.dart';
 import '../common/site_color.dart';
 import '../item_edit_sheet.dart';
 
@@ -136,7 +138,8 @@ class _PasswordDetailPageState extends State<PasswordDetailPage> {
                 if (_adding)
                   InlineEditForm(
                     title: '添加账号',
-                    requiredKeys: const {'username'},
+                    // 用户名与密码允许只填其一，但不能都为空
+                    requireAnyOf: const {'username', 'password'},
                     fields: const [
                       InlineField(
                         key: 'username',
@@ -426,7 +429,8 @@ class _AccountCardState extends State<_AccountCard> {
     if (_editing) {
       return InlineEditForm(
         title: '编辑账号',
-        requiredKeys: const {'username'},
+        // 用户名与密码允许只填其一，但不能都为空
+        requireAnyOf: const {'username', 'password'},
         fields: [
           InlineField(
             key: 'username',
@@ -464,109 +468,74 @@ class _AccountCardState extends State<_AccountCard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 顶部居中的拖动把手（横向短杠，视觉上像卡片抓取条）
-          Center(
-            child: DragHandle(
-              index: widget.index,
-              icon: Icons.drag_handle,
-              size: 22,
-            ),
-          ),
-          // 行头：账号序号 + 操作
+          // 行头：拖拽把手左置 + 账号序号 + 更多操作菜单
           Row(
             children: [
+              DragHandle(index: widget.index, size: 16),
+              const SizedBox(width: 4),
               Text('账号 ${widget.index + 1}',
                   style: const TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w600,
                       color: AppColors.textMain)),
               const Spacer(),
-              IconButton(
-                icon: const Icon(Icons.edit_outlined,
-                    size: 18, color: AppColors.textWeak),
-                tooltip: '编辑',
-                visualDensity: VisualDensity.compact,
-                onPressed: () => setState(() => _editing = true),
-              ),
-              IconButton(
-                icon: const Icon(Icons.delete_outline,
-                    size: 18, color: AppColors.danger),
-                tooltip: '删除',
-                visualDensity: VisualDensity.compact,
-                onPressed: _delete,
+              // 前两列留空：本行无复制/显示操作，占位以对齐下方各行
+              const ActionSlot(count: 2),
+              ActionSlot(
+                child: RowActionMenu(
+                  size: 18,
+                  actions: [
+                    RowAction(
+                      label: '编辑',
+                      icon: Icons.edit_outlined,
+                      onSelected: () => setState(() => _editing = true),
+                    ),
+                    RowAction(
+                      label: '删除账号',
+                      icon: Icons.delete_outline,
+                      isDangerous: true,
+                      onSelected: _delete,
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
           const SizedBox(height: 4),
-          // 用户名（可复制）
-          Row(children: [
-            const Text('用户名',
-                style: TextStyle(fontSize: 13, color: AppColors.textWeak)),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(widget.account.username,
-                  style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                      color: AppColors.textMain)),
-            ),
-            CopyIconButton(
-              label: '用户名',
-              onResolve: () async => widget.account.username,
-            ),
-          ]),
-          const SizedBox(height: 6),
-          // 密码行（遮挡 / 显示 / 复制）
-          Row(children: [
-            const Text('密码',
-                style: TextStyle(fontSize: 13, color: AppColors.textWeak)),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                // 遮挡时按明文实际位数铺满星号，长度未就绪前先留空避免抖动
-                _visible ? (_plain ?? '') : '*' * (_plainLength ?? 0),
-                style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                    color: AppColors.textMain),
-              ),
-            ),
+          // 用户名与密码可能只有一个有值：始终占位成行，空值显示「未设置」，
+          // 保证两行的标签线与值线不因缺值而错位
+          DetailFieldRow(
+            label: '用户名',
+            value: widget.account.username,
+            emphasized: true,
+            copyLabel: '用户名',
+            onCopy: () async => widget.account.username,
+          ),
+          DetailFieldRow(
+            label: '密码',
+            // 遮挡时按明文实际位数铺满星号，长度未就绪前先留空避免抖动
+            value: _visible ? (_plain ?? '') : '*' * (_plainLength ?? 0),
+            // 解密未完成时不显示「未设置」
+            pending: _plain == null,
+            emphasized: true,
+            obscurable: true,
+            revealed: _visible,
+            onToggle: _toggleReveal,
+            copyLabel: '密码',
             // 复制无需先显示：按需解密后直接进剪贴板
-            CopyIconButton(
-              label: '密码',
-              onResolve: () async {
-                final state = context.read<AppState>();
-                return _plain ?? await state.data.plainPassword(widget.account);
-              },
+            onCopy: () async {
+              final state = context.read<AppState>();
+              return _plain ?? await state.data.plainPassword(widget.account);
+            },
+          ),
+          // 备注与上面两行同格式，不再自带「：」
+          if (widget.account.note.isNotEmpty)
+            DetailFieldRow(
+              label: '备注',
+              value: widget.account.note,
+              copyLabel: '备注',
+              onCopy: () async => widget.account.note,
             ),
-            // 单条查看按钮（需求 1.1）
-            IconButton(
-              icon: Icon(
-                _visible ? Icons.visibility : Icons.visibility_off,
-                size: 18,
-                color: AppColors.textWeak,
-              ),
-              tooltip: _visible ? '隐藏' : '显示',
-              visualDensity: VisualDensity.compact,
-              onPressed: _toggleReveal,
-            ),
-          ]),
-          // 用户级备注（可复制）
-          if (widget.account.note.isNotEmpty) ...[
-            const SizedBox(height: 4),
-            Row(children: [
-              Expanded(
-                child: Text('备注：${widget.account.note}',
-                    style: const TextStyle(
-                        fontSize: 12, color: AppColors.textWeak)),
-              ),
-              CopyIconButton(
-                label: '备注',
-                size: 16,
-                onResolve: () async => widget.account.note,
-              ),
-            ]),
-          ],
         ],
       ),
     );
