@@ -6,7 +6,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../core/constants.dart';
-import '../models/password_item.dart';
 import 'common/app_toast.dart';
 import '../services/search_service.dart';
 import '../state/app_state.dart';
@@ -243,20 +242,12 @@ class _SearchPageState extends State<SearchPage> {
   }
 
   /// 点击结果跳转到对应详情（需求 3.3）
-  void _jumpTo(SearchResult r) {
+  Future<void> _jumpTo(SearchResult r) async {
     final state = context.read<AppState>();
-    // 从对应列表找到完整条目对象
-    final items = r.itemType == ItemType.apikey
-        ? state.apikeyItems
-        : state.passwordItems;
-    PasswordItem? item;
-    for (final e in items) {
-      if (e.id == r.itemId) {
-        item = e;
-        break;
-      }
-    }
-    if (item == null) {
+    // 直接按 id 查库，避免根目录缓存列表查不到文件夹内的条目
+    final item = await state.data.getItem(r.itemId);
+    if (!mounted) return;
+    if (item == null || item.deleted) {
       showAppToast(context, '条目不存在或已删除', kind: ToastKind.error);
       return;
     }
@@ -266,8 +257,8 @@ class _SearchPageState extends State<SearchPage> {
       context,
       MaterialPageRoute(
         builder: (_) => r.itemType == ItemType.apikey
-            ? ApiKeyDetailPage(item: item!)
-            : PasswordDetailPage(item: item!),
+            ? ApiKeyDetailPage(item: item)
+            : PasswordDetailPage(item: item),
       ),
     ).then((_) => state.refresh());
   }
