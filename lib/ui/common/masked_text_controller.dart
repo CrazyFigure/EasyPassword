@@ -27,8 +27,8 @@ import 'package:flutter/widgets.dart';
 class MaskedTextEditingController extends TextEditingController {
   MaskedTextEditingController({super.text});
 
-  /// 与 `TextField.obscuringCharacter` 的默认值保持一致，切换开关前后观感不变。
-  static const String maskCharacter = '•';
+  /// 与详情页遮挡展示保持一致，统一使用星号，且按实际位数铺满。
+  static const String maskCharacter = '*';
 
   /// 是否由本控制器绘制遮挡；由使用方在 build 中按当前显隐与键盘偏好设置。
   bool maskEnabled = false;
