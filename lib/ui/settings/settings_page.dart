@@ -121,7 +121,7 @@ class SettingsPage extends StatelessWidget {
           ),
           const _Divider(),
           _ActionTile(
-            icon: Icons.swap_vert_outlined,
+            icon: Icons.import_export,
             title: '明文导入导出',
             subtitle: '本地明文备份与恢复，支持增量或覆盖导入',
             onTap: () => Navigator.push(
