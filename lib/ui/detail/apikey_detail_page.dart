@@ -14,8 +14,10 @@ import '../../state/app_state.dart';
 import '../center_dialog.dart';
 import '../common/confirm_dialog.dart';
 import '../common/copy_util.dart';
+import '../common/detail_field_row.dart';
 import '../common/drag_handle.dart';
 import '../common/inline_edit_form.dart';
+import '../common/row_action_menu.dart';
 import '../common/site_color.dart';
 import '../item_edit_sheet.dart';
 
@@ -134,7 +136,8 @@ class _ApiKeyDetailPageState extends State<ApiKeyDetailPage> {
                 if (_adding)
                   InlineEditForm(
                     title: '添加用户',
-                    requiredKeys: const {'username'},
+                    // 用户名与平台密码允许只填其一，但不能都为空
+                    requireAnyOf: const {'username', 'password'},
                     fields: const [
                       InlineField(
                         key: 'username',
@@ -340,7 +343,8 @@ class _UserCardState extends State<_UserCard> {
     if (_editing) {
       return InlineEditForm(
         title: '编辑用户',
-        requiredKeys: const {'username'},
+        // 用户名与平台密码允许只填其一，但不能都为空
+        requireAnyOf: const {'username', 'password'},
         fields: [
           InlineField(
             key: 'username',
@@ -380,93 +384,78 @@ class _UserCardState extends State<_UserCard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 顶部居中的拖动把手（用户卡片内嵌 API Key 列表，
-          // 若整卡长按拖动会与内层 API Key 的长按拖动冲突，故仍保留把手拖动）
-          Center(
-            child: DragHandle(
-              index: widget.index,
-              icon: Icons.drag_handle,
-              size: 22,
-            ),
-          ),
-          // 用户行头
+          // 用户行头：仅承载身份与卡片级操作，具体字段交给下方字段行，
+          // 避免出现「行头也是一个字段」造成的层级混乱
           Row(children: [
+            DragHandle(index: widget.index, size: 16),
+            const SizedBox(width: 4),
             const Icon(Icons.person_outline,
-                size: 18, color: AppColors.primary),
+                size: 16, color: AppColors.primary),
             const SizedBox(width: 6),
             Expanded(
-              child: Text(widget.account.username,
-                  style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.textMain)),
-            ),
-            CopyIconButton(
-              label: '用户名',
-              size: 16,
-              onResolve: () async => widget.account.username,
-            ),
-            IconButton(
-              icon: const Icon(Icons.edit_outlined,
-                  size: 18, color: AppColors.textWeak),
-              tooltip: '编辑',
-              visualDensity: VisualDensity.compact,
-              onPressed: () => setState(() => _editing = true),
-            ),
-            IconButton(
-              icon: const Icon(Icons.delete_outline,
-                  size: 18, color: AppColors.danger),
-              tooltip: '删除',
-              visualDensity: VisualDensity.compact,
-              onPressed: _deleteUser,
-            ),
-          ]),
-          // 平台密码（遮挡 / 显示 / 复制）
-          Row(children: [
-            const Text('平台密码',
-                style: TextStyle(fontSize: 12, color: AppColors.textWeak)),
-            const SizedBox(width: 10),
-            Expanded(
               child: Text(
-                // 遮挡时按明文实际位数铺满星号，长度未就绪前先留空避免抖动
-                _pwdRevealed ? (_plainPwd ?? '') : '*' * (_plainPwdLength ?? 0),
-                style: const TextStyle(fontSize: 13, color: AppColors.textMain),
+                widget.account.username.isEmpty
+                    ? '用户 ${widget.index + 1}'
+                    : widget.account.username,
+                style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textMain),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
             ),
-            CopyIconButton(
-              label: '平台密码',
-              size: 16,
-              onResolve: () async {
-                final state = context.read<AppState>();
-                return _plainPwd ??
-                    await state.data.plainPassword(widget.account);
-              },
-            ),
-            IconButton(
-              icon: Icon(
-                _pwdRevealed ? Icons.visibility : Icons.visibility_off,
+            const ActionSlot(count: 2),
+            ActionSlot(
+              child: RowActionMenu(
                 size: 16,
-                color: AppColors.textWeak,
+                actions: [
+                  RowAction(
+                    label: '编辑',
+                    icon: Icons.edit_outlined,
+                    onSelected: () => setState(() => _editing = true),
+                  ),
+                  RowAction(
+                    label: '删除用户',
+                    icon: Icons.delete_outline,
+                    isDangerous: true,
+                    onSelected: _deleteUser,
+                  ),
+                ],
               ),
-              tooltip: _pwdRevealed ? '隐藏' : '显示',
-              visualDensity: VisualDensity.compact,
-              onPressed: _togglePwd,
             ),
           ]),
-          // 用户级备注（可复制）
+          const SizedBox(height: 4),
+          // 用户名与平台密码同为字段行：标签线、值线、操作列三者对齐
+          DetailFieldRow(
+            label: '用户名',
+            value: widget.account.username,
+            copyLabel: '用户名',
+            onCopy: () async => widget.account.username,
+          ),
+          DetailFieldRow(
+            label: '平台密码',
+            value:
+                _pwdRevealed ? (_plainPwd ?? '') : '*' * (_plainPwdLength ?? 0),
+            pending: _plainPwd == null,
+            obscurable: true,
+            revealed: _pwdRevealed,
+            onToggle: _togglePwd,
+            copyLabel: '平台密码',
+            onCopy: () async {
+              final state = context.read<AppState>();
+              return _plainPwd ??
+                  await state.data.plainPassword(widget.account);
+            },
+          ),
+          // 备注与上方字段同格式，不再自带「：」
           if (widget.account.note.isNotEmpty)
-            Row(children: [
-              Expanded(
-                child: Text('备注：${widget.account.note}',
-                    style: const TextStyle(
-                        fontSize: 12, color: AppColors.textWeak)),
-              ),
-              CopyIconButton(
-                label: '备注',
-                size: 16,
-                onResolve: () async => widget.account.note,
-              ),
-            ]),
+            DetailFieldRow(
+              label: '备注',
+              value: widget.account.note,
+              copyLabel: '备注',
+              onCopy: () async => widget.account.note,
+            ),
           const SizedBox(height: 4),
           // API Key 列表（可拖动排序，需求 2.4）
           if (_keys.isNotEmpty) ...[
@@ -703,6 +692,9 @@ class _ApiKeyTileState extends State<_ApiKeyTile> {
         ),
         child: Row(
           children: [
+            // 拖拽把手移至左侧，与操作按钮分离，避免右侧拥挤
+            DragHandle(index: widget.index, size: 18),
+            const SizedBox(width: 4),
             const Icon(Icons.key, size: 16, color: AppColors.primary),
             const SizedBox(width: 8),
             Expanded(
@@ -724,41 +716,48 @@ class _ApiKeyTileState extends State<_ApiKeyTile> {
                 ],
               ),
             ),
-            // 复制无需先显示：按需解密后直接进剪贴板
-            CopyIconButton(
-              label: 'API Key',
-              size: 16,
-              onResolve: () async {
-                final state = context.read<AppState>();
-                return _plain ?? await state.data.plainKey(widget.apiKey);
-              },
-            ),
-            IconButton(
-              icon: Icon(
-                visible ? Icons.visibility : Icons.visibility_off,
-                size: 16,
-                color: AppColors.textWeak,
+            // 顺序与字段行一致：显示/隐藏 → 复制 → 更多
+            ActionSlot(
+              child: IconButton(
+                icon: Icon(
+                  visible ? Icons.visibility : Icons.visibility_off,
+                  size: 16,
+                  color: AppColors.textWeak,
+                ),
+                tooltip: visible ? '隐藏' : '显示',
+                visualDensity: VisualDensity.compact,
+                onPressed: _toggle,
               ),
-              tooltip: visible ? '隐藏' : '显示',
-              visualDensity: VisualDensity.compact,
-              onPressed: _toggle,
             ),
-            IconButton(
-              icon: const Icon(Icons.edit_outlined,
-                  size: 16, color: AppColors.textWeak),
-              tooltip: '编辑',
-              visualDensity: VisualDensity.compact,
-              onPressed: () => setState(() => _editing = true),
+            ActionSlot(
+              child: CopyIconButton(
+                label: 'API Key',
+                size: 16,
+                onResolve: () async {
+                  final state = context.read<AppState>();
+                  return _plain ?? await state.data.plainKey(widget.apiKey);
+                },
+              ),
             ),
-            IconButton(
-              icon: const Icon(Icons.delete_outline,
-                  size: 16, color: AppColors.danger),
-              tooltip: '删除',
-              visualDensity: VisualDensity.compact,
-              onPressed: _delete,
+            // 低频/破坏性操作：编辑、删除收入菜单，减少视觉噪音
+            ActionSlot(
+              child: RowActionMenu(
+                size: 16,
+                actions: [
+                  RowAction(
+                    label: '编辑',
+                    icon: Icons.edit_outlined,
+                    onSelected: () => setState(() => _editing = true),
+                  ),
+                  RowAction(
+                    label: '删除',
+                    icon: Icons.delete_outline,
+                    isDangerous: true,
+                    onSelected: _delete,
+                  ),
+                ],
+              ),
             ),
-            // 保留把手图标作为可拖动的视觉提示（整条已可长按拖动）
-            DragHandle(index: widget.index, size: 18),
           ],
         ),
       ),
@@ -858,7 +857,7 @@ class _SiteHeader extends StatelessWidget {
   }
 }
 
-/// 备注卡片（可选复制）
+
 /// 布局说明：标签与内容同处一行（不再上下堆叠），保证备注行与
 /// 用户名/密码等普通行等高。
 class _NoteCard extends StatelessWidget {

@@ -41,10 +41,16 @@ class InlineField {
 ///
 /// 由父级在「编辑态」时替换原展示卡片渲染，视觉上就是卡片本身变成了可编辑状态。
 /// [onSave] 收到各字段 key -> 文本值；[requiredKeys] 中的字段为空时拦截并提示。
+///
+/// [requireAnyOf] 用于「其中至少一个有值」的场景：例如网站账号的用户名与密码
+/// 都允许单独为空，但不能两者皆空而存下一条空记录。
 class InlineEditForm extends StatefulWidget {
   final String title;
   final List<InlineField> fields;
   final Set<String> requiredKeys;
+
+  /// 至少需填其中一个的字段 key；为空集合表示不做此校验
+  final Set<String> requireAnyOf;
   final ValueChanged<Map<String, String>> onSave;
   final VoidCallback onCancel;
 
@@ -55,6 +61,7 @@ class InlineEditForm extends StatefulWidget {
     required this.onSave,
     required this.onCancel,
     this.requiredKeys = const {},
+    this.requireAnyOf = const {},
   });
 
   @override
@@ -108,6 +115,18 @@ class _InlineEditFormState extends State<InlineEditForm> {
       if ((_ctrls[key]?.text.trim() ?? '').isEmpty) {
         final field = widget.fields.firstWhere((f) => f.key == key);
         showAppToast(context, '${field.label}不能为空', kind: ToastKind.error);
+        return;
+      }
+    }
+    // 「至少填一个」校验：允许单个字段为空，但不允许整组皆空
+    if (widget.requireAnyOf.isNotEmpty) {
+      final anyFilled = widget.requireAnyOf
+          .any((key) => (_ctrls[key]?.text.trim() ?? '').isNotEmpty);
+      if (!anyFilled) {
+        final labels = widget.requireAnyOf
+            .map((key) => widget.fields.firstWhere((f) => f.key == key).label)
+            .join('或');
+        showAppToast(context, '请至少填写$labels', kind: ToastKind.error);
         return;
       }
     }
