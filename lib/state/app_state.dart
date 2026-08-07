@@ -2,8 +2,12 @@
 library;
 
 import 'dart:async';
+import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 
 import '../core/constants.dart';
 import '../models/folder.dart';
@@ -13,6 +17,7 @@ import '../services/app_lock_service.dart';
 import '../services/crypto_service.dart';
 import '../services/data_service.dart';
 import '../services/database.dart';
+import '../services/plain_transfer_service.dart';
 import '../services/search_service.dart';
 import '../services/settings_service.dart';
 import '../services/webdav_service.dart';
@@ -25,6 +30,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   late final SettingsService settings;
   late final AppLockService appLock;
   late final WebDavService webdav;
+  late final PlainTransferService plainTransfer;
 
   // 当前状态
   bool initialized = false;
@@ -66,6 +72,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     settings = SettingsService();
     appLock = AppLockService(crypto);
     webdav = WebDavService(crypto, data);
+    plainTransfer = PlainTransferService(crypto, data);
     // 三类本地修改统一进入同一防抖队列，保存本身不等待网络。
     data.onChanged = _onLocalChanged;
     settings.onChanged = _onLocalChanged;
@@ -396,6 +403,64 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
         _scheduleAutomaticSync(const Duration(milliseconds: 500));
       }
     }
+  }
+
+  /// 明文导出：生成可读 JSON 文本并写入应用文档目录，返回文件绝对路径。
+  ///
+  /// 文件内容等同于全部密码原文，因此只写本机应用目录、不参与任何同步，
+  /// 由用户自行决定是否转移或删除。
+  Future<String> exportPlainFile() async {
+    final text = await plainTransfer.exportPlainText();
+    final file = File(await plainExportFilePath());
+    await file.parent.create(recursive: true);
+    await file.writeAsString(text, flush: true);
+    return file.path;
+  }
+
+  /// 明文导出文件的默认路径。
+  ///
+  /// Android 的应用文档目录是私有沙盒，用文件管理器看不到，因此改用外部
+  /// 存储的应用目录（/storage/emulated/0/Android/data/<包名>/files），
+  /// 用户可直接访问与拷出；Windows 则落在「我的文档」。
+  Future<String> plainExportFilePath() async {
+    Directory? dir;
+    if (!kIsWeb && Platform.isAndroid) {
+      dir = await getExternalStorageDirectory();
+    }
+    dir ??= await getApplicationDocumentsDirectory();
+    return p.join(dir.path, PlainTransferService.defaultFileName);
+  }
+
+  /// 从指定文件导入明文备份；[path] 为空时读取默认导出路径。
+  Future<PlainImportResult> importPlainFile({
+    required PlainImportMode mode,
+    String? path,
+  }) async {
+    final target = (path == null || path.trim().isEmpty)
+        ? await plainExportFilePath()
+        : path.trim();
+    final file = File(target);
+    if (!await file.exists()) {
+      throw PlainImportException('找不到文件：$target');
+    }
+    return importPlainText(await file.readAsString(), mode: mode);
+  }
+
+  /// 从文本导入明文备份，成功后刷新列表缓存并推动一次自动同步。
+  ///
+  /// 导入的行都带有导入时刻的 updated_at，覆盖模式删除的数据留有墓碑，
+  /// 因此接下来的合并会把导入结果正确地传播到其他设备，而不会被远端旧
+  /// 快照回滚，也不会让被删数据复活。
+  Future<PlainImportResult> importPlainText(
+    String text, {
+    required PlainImportMode mode,
+  }) async {
+    final result =
+        await plainTransfer.importPlainText(text, mode: mode);
+    await refresh();
+    // 导入通常一次性改动大量行，比常规编辑更值得尽快推送出去。
+    _scheduleAutomaticSync(const Duration(milliseconds: 300));
+    return result;
   }
 
   /// 远端设置可能改变字体、导航、排序和应用锁，合并后必须整体刷新缓存。

@@ -25,6 +25,10 @@ class DataService {
     if (callback != null) unawaited(callback());
   }
 
+  /// 供绕过本服务直接写库的批量操作（如明文导入）在事务提交后调用，
+  /// 让这类改动同样进入自动同步的防抖队列。
+  void notifyChanged() => _notifyChanged();
+
   static const _chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
 
   /// 生成唯一短 ID
