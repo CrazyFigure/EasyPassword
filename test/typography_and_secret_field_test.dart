@@ -158,7 +158,7 @@ void main() {
     }
   });
 
-  test('自绘遮挡按字符数铺满圆点，与 obscureText 观感一致', () {
+  test('自绘遮挡按字符数铺满星号，与 obscureText 观感一致', () {
     final controller = MaskedTextEditingController(text: 'secret');
     addTearDown(controller.dispose);
     controller.maskEnabled = true;
@@ -166,7 +166,7 @@ void main() {
       context: _FakeBuildContext(),
       withComposing: false,
     );
-    expect(span.toPlainText(), '•' * 'secret'.length);
+    expect(span.toPlainText(), '*' * 'secret'.length);
   });
 }
 

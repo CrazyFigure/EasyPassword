@@ -86,6 +86,8 @@ class _SecretTextFieldState extends State<SecretTextField> {
       controller: controller,
       // 自绘遮挡时必须为 false，否则引擎仍会声明密码输入类型。
       obscureText: obscure && !maskInFlutter,
+      // 与自绘遮挡及详情页保持同一字符，两条遮挡路径观感一致。
+      obscuringCharacter: MaskedTextEditingController.maskCharacter,
       keyboardType: TextInputType.text,
       // 对齐 obscureText 默认关闭选择的行为，避免长按选中后复制到明文；
       // 其余情况传 null 交还框架默认值。

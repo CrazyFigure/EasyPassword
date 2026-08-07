@@ -377,6 +377,7 @@ class _AccountCard extends StatefulWidget {
 class _AccountCardState extends State<_AccountCard> {
   bool _revealed = false;
   String? _plain; // 解密后的密码（按需解密）
+  int? _plainLength; // 明文位数，仅用于铺满等长星号
   bool _editing = false; // 是否处于就地编辑态
 
   @override
@@ -390,7 +391,8 @@ class _AccountCardState extends State<_AccountCard> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     // context 可用后再解密（initState 中不能安全 read<AppState>）
-    if (_revealed) _ensurePlain();
+    // 遮挡态也需要位数，因此始终解密一次
+    _ensurePlain();
   }
 
   @override
@@ -408,7 +410,12 @@ class _AccountCardState extends State<_AccountCard> {
     if (_plain != null) return;
     final state = context.read<AppState>();
     final plain = await state.data.plainPassword(widget.account);
-    if (mounted) setState(() => _plain = plain);
+    if (mounted) {
+      setState(() {
+        _plain = plain;
+        _plainLength = plain.length;
+      });
+    }
   }
 
   bool get _visible => _revealed;
@@ -516,7 +523,8 @@ class _AccountCardState extends State<_AccountCard> {
             const SizedBox(width: 12),
             Expanded(
               child: Text(
-                _visible ? (_plain ?? '********') : '********',
+                // 遮挡时按明文实际位数铺满星号，长度未就绪前先留空避免抖动
+                _visible ? (_plain ?? '') : '*' * (_plainLength ?? 0),
                 style: const TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w500,
@@ -584,9 +592,11 @@ class _AccountCardState extends State<_AccountCard> {
     );
     if (!mounted) return;
     setState(() => _editing = false);
-    // 密码可能已变更，清除明文缓存；仍在显示状态则重新解密
+    // 密码可能已变更，清除明文缓存后必须重新解密：
+    // 遮挡态也要拿到新位数才能铺出等长星号
     _plain = null;
-    if (_revealed) await _ensurePlain();
+    _plainLength = null;
+    await _ensurePlain();
     widget.onChanged();
   }
 

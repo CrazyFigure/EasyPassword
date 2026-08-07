@@ -280,6 +280,7 @@ class _UserCardState extends State<_UserCard> {
   bool _loaded = false;
   bool _pwdRevealed = false;
   String? _plainPwd;
+  int? _plainPwdLength; // 明文位数，仅用于铺满等长星号
   bool _editing = false; // 用户信息就地编辑态
   bool _addingKey = false; // 是否正在就地新增 API Key
 
@@ -305,7 +306,12 @@ class _UserCardState extends State<_UserCard> {
     if (_plainPwd != null) return;
     final state = context.read<AppState>();
     final plain = await state.data.plainPassword(widget.account);
-    if (mounted) setState(() => _plainPwd = plain);
+    if (mounted) {
+      setState(() {
+        _plainPwd = plain;
+        _plainPwdLength = plain.length;
+      });
+    }
   }
 
   @override
@@ -313,7 +319,8 @@ class _UserCardState extends State<_UserCard> {
     super.didChangeDependencies();
     if (!_loaded) _loadKeys();
     // context 可用后再解密（initState 中不能安全 read<AppState>）
-    if (_pwdRevealed) _ensurePlainPwd();
+    // 遮挡态也需要位数，因此始终解密一次
+    _ensurePlainPwd();
   }
 
   Future<void> _loadKeys() async {
@@ -421,7 +428,8 @@ class _UserCardState extends State<_UserCard> {
             const SizedBox(width: 10),
             Expanded(
               child: Text(
-                _pwdRevealed ? (_plainPwd ?? '********') : '********',
+                // 遮挡时按明文实际位数铺满星号，长度未就绪前先留空避免抖动
+                _pwdRevealed ? (_plainPwd ?? '') : '*' * (_plainPwdLength ?? 0),
                 style: const TextStyle(fontSize: 13, color: AppColors.textMain),
               ),
             ),
@@ -565,9 +573,11 @@ class _UserCardState extends State<_UserCard> {
     );
     if (!mounted) return;
     setState(() => _editing = false);
-    // 密码可能已变更，清除明文缓存；仍在显示状态则重新解密
+    // 密码可能已变更，清除明文缓存后必须重新解密：
+    // 遮挡态也要拿到新位数才能铺出等长星号
     _plainPwd = null;
-    if (_pwdRevealed) await _ensurePlainPwd();
+    _plainPwdLength = null;
+    await _ensurePlainPwd();
     widget.onChanged();
   }
 
@@ -609,6 +619,7 @@ class _ApiKeyTile extends StatefulWidget {
 class _ApiKeyTileState extends State<_ApiKeyTile> {
   bool _revealed = false;
   String? _plain;
+  int? _plainLength; // 明文位数，仅用于铺满等长星号
   bool _editing = false; // 就地编辑态
 
   @override
@@ -622,7 +633,8 @@ class _ApiKeyTileState extends State<_ApiKeyTile> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     // context 可用后再解密（initState 中不能安全 read<AppState>）
-    if (_revealed) _ensurePlain();
+    // 遮挡态也需要位数，因此始终解密一次
+    _ensurePlain();
   }
 
   @override
@@ -640,7 +652,12 @@ class _ApiKeyTileState extends State<_ApiKeyTile> {
     if (_plain != null) return;
     final state = context.read<AppState>();
     final plain = await state.data.plainKey(widget.apiKey);
-    if (mounted) setState(() => _plain = plain);
+    if (mounted) {
+      setState(() {
+        _plain = plain;
+        _plainLength = plain.length;
+      });
+    }
   }
 
   @override
@@ -693,7 +710,8 @@ class _ApiKeyTileState extends State<_ApiKeyTile> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    visible ? (_plain ?? 'sk-***') : 'sk-***',
+                    // 遮挡时按 key 实际位数铺满星号，不再暴露 sk- 前缀
+                    visible ? (_plain ?? '') : '*' * (_plainLength ?? 0),
                     style: const TextStyle(
                         fontSize: 13, color: AppColors.textMain),
                     maxLines: 1,
@@ -765,9 +783,11 @@ class _ApiKeyTileState extends State<_ApiKeyTile> {
     );
     if (!mounted) return;
     setState(() => _editing = false);
-    // key 可能已变更，清除明文缓存；仍在显示状态则重新解密
+    // key 可能已变更，清除明文缓存后必须重新解密：
+    // 遮挡态也要拿到新位数才能铺出等长星号
     _plain = null;
-    if (_revealed) await _ensurePlain();
+    _plainLength = null;
+    await _ensurePlain();
     widget.onChanged();
   }
 
