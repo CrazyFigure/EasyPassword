@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 
 import '../core/constants.dart';
 import '../models/password_item.dart';
+import 'common/app_toast.dart';
 import '../services/search_service.dart';
 import '../state/app_state.dart';
 import 'detail/apikey_detail_page.dart';
@@ -256,9 +257,7 @@ class _SearchPageState extends State<SearchPage> {
       }
     }
     if (item == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('条目不存在或已删除')),
-      );
+      showAppToast(context, '条目不存在或已删除', kind: ToastKind.error);
       return;
     }
     // 跳转对应功能区 tab

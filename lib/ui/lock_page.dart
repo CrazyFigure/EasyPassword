@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../core/constants.dart';
 import '../state/app_state.dart';
 import 'center_dialog.dart';
+import 'common/app_toast.dart';
 import 'common/masked_text_controller.dart';
 import 'common/secret_text_field.dart';
 import 'settings/app_lock_recover.dart';
@@ -48,9 +49,7 @@ class _LockPageState extends State<LockPage> {
     final question = await state.appLock.getSecurityQuestion();
     if (question == null || question.isEmpty) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('未设置安全问题，无法恢复')),
-      );
+      showAppToast(context, '未设置安全问题，无法恢复', kind: ToastKind.error);
       return;
     }
     if (!mounted) return;

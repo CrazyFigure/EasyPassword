@@ -8,6 +8,7 @@ import '../../core/constants.dart';
 import '../../services/webdav_service.dart';
 import '../../state/app_state.dart';
 import '../common/app_menu.dart';
+import '../common/app_toast.dart';
 import '../common/confirm_dialog.dart';
 import '../common/masked_text_controller.dart';
 import '../common/secret_text_field.dart';
@@ -25,7 +26,6 @@ class _WebDavSetupPageState extends State<WebDavSetupPage> {
   late final MaskedTextEditingController _passCtrl;
   late final TextEditingController _pathCtrl;
   String? _busy; // 当前操作：test | save | local | remote | automatic
-  String? _status;
 
   @override
   void initState() {
@@ -152,26 +152,20 @@ class _WebDavSetupPageState extends State<WebDavSetupPage> {
     if (!mounted) return;
     setState(() {
       _busy = null;
-      _status = state.syncMessage;
     });
+    final msg = state.syncMessage;
+    if (msg != null) {
+      showAppToast(context, msg, kind: toastKindOf(msg));
+    }
   }
 
   void _setStatus(String message) {
     if (!mounted) return;
-    setState(() => _status = message);
+    showAppToast(context, message, kind: toastKindOf(message));
   }
 
   String _formatError(Object error) =>
       error.toString().replaceFirst('Exception: ', '');
-
-  bool _isErrorStatus(String value) =>
-      value.contains('失败') ||
-      value.contains('拒') ||
-      value.contains('无效') ||
-      value.contains('不能') ||
-      value.contains('不存在') ||
-      value.contains('请先') ||
-      value.contains('尚未');
 
   Widget _spinner(Color color) => SizedBox(
         width: 18,
@@ -208,13 +202,6 @@ class _WebDavSetupPageState extends State<WebDavSetupPage> {
                   const _SectionTitle('自动同步'),
                   const SizedBox(height: 10),
                   _buildAutomaticSettings(state, busy, enabled),
-                  if (_status != null) ...[
-                    const SizedBox(height: 16),
-                    _StatusBanner(
-                      message: _status!,
-                      isError: _isErrorStatus(_status!),
-                    ),
-                  ],
                 ],
               ),
             ),
@@ -563,39 +550,6 @@ class _SyncActionCard extends StatelessWidget {
                   size: 18, color: AppColors.textFaint),
             ],
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _StatusBanner extends StatelessWidget {
-  final String message;
-  final bool isError;
-  const _StatusBanner({required this.message, required this.isError});
-
-  @override
-  Widget build(BuildContext context) {
-    final color = isError ? AppColors.danger : AppColors.success;
-    return Semantics(
-      liveRegion: true,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: color.withValues(alpha: 0.25)),
-        ),
-        child: Row(
-          children: [
-            Icon(isError ? Icons.error_outline : Icons.check_circle_outline,
-                size: 18, color: color),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(message,
-                  style: TextStyle(fontSize: 13, height: 1.4, color: color)),
-            ),
-          ],
         ),
       ),
     );

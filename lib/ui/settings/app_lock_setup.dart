@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/constants.dart';
 import '../../state/app_state.dart';
+import '../common/app_toast.dart';
 import '../common/masked_text_controller.dart';
 import '../common/secret_text_field.dart';
 
@@ -61,9 +62,7 @@ class _AppLockSetupPageState extends State<AppLockSetupPage> {
     if (!mounted) return;
     setState(() => _busy = false);
     Navigator.pop(context);
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('应用锁已开启')),
-    );
+    showAppToast(context, '应用锁已开启', kind: ToastKind.success);
   }
 
   Future<void> _verifyCurrent() async {
@@ -107,7 +106,7 @@ class _AppLockSetupPageState extends State<AppLockSetupPage> {
   }
 
   void _toast(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    showAppToast(context, msg, kind: ToastKind.error);
   }
 
   @override

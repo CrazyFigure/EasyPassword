@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../core/constants.dart';
 import '../core/folder_palette.dart';
 import 'center_dialog.dart';
+import 'common/app_toast.dart';
 
 /// 文件夹编辑结果：名称 + 颜色（颜色为 null 表示用主题默认色）
 class FolderEditResult {
@@ -45,7 +46,6 @@ class _FolderEditDialog extends StatefulWidget {
 class _FolderEditDialogState extends State<_FolderEditDialog> {
   late final TextEditingController _ctrl;
   late int? _color;
-  String? _error;
 
   bool get _isRename => widget.initialName != null;
 
@@ -65,9 +65,9 @@ class _FolderEditDialogState extends State<_FolderEditDialog> {
 
   void _submit() {
     final name = _ctrl.text.trim();
-    // 就地红字提示，与内联编辑表单的校验风格一致
+    // 袖珍悬浮提示，与内联编辑表单的校验风格一致
     if (name.isEmpty) {
-      setState(() => _error = '文件夹名称不能为空');
+      showAppToast(context, '文件夹名称不能为空', kind: ToastKind.error);
       return;
     }
     Navigator.pop(context, FolderEditResult(name, _color));
@@ -115,11 +115,6 @@ class _FolderEditDialogState extends State<_FolderEditDialog> {
             textInputAction: TextInputAction.done,
             onSubmitted: (_) => _submit(),
           ),
-          if (_error != null) ...[
-            const SizedBox(height: 8),
-            Text(_error!,
-                style: const TextStyle(fontSize: 12, color: AppColors.danger)),
-          ],
           const SizedBox(height: 18),
           const Text('文件夹颜色',
               style: TextStyle(
