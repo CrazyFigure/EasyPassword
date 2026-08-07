@@ -13,6 +13,7 @@ import '../center_dialog.dart';
 import '../common/confirm_dialog.dart';
 import 'app_lock_setup.dart';
 import 'font_size_setting.dart';
+import 'plain_transfer_page.dart';
 import 'tab_customize_sheet.dart';
 import 'update_check_dialog.dart';
 import 'webdav_setup.dart';
@@ -116,6 +117,16 @@ class SettingsPage extends StatelessWidget {
             onTap: () => Navigator.push(
               context,
               MaterialPageRoute(builder: (_) => const WebDavSetupPage()),
+            ),
+          ),
+          const _Divider(),
+          _ActionTile(
+            icon: Icons.swap_vert_outlined,
+            title: '明文导入导出',
+            subtitle: '本地明文备份与恢复，支持增量或覆盖导入',
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const PlainTransferPage()),
             ),
           ),
         ]),
