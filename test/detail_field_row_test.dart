@@ -120,6 +120,47 @@ void main() {
     expect(find.byTooltip('显示'), findsNothing);
   });
 
+  testWidgets('有值行与空值行等高，行距不因缺值变形', (tester) async {
+    // 回归截图问题：空值行没有按钮时高度塌陷，卡片内行距忽大忽小
+    await _pumpRows(tester, [
+      const DetailFieldRow(label: '用户名', value: ''),
+      DetailFieldRow(
+        label: '平台密码',
+        value: '****',
+        obscurable: true,
+        onToggle: () {},
+        onCopy: () async => 'x',
+      ),
+      DetailFieldRow(
+        label: '备注',
+        value: '1213',
+        onCopy: () async => '1213',
+      ),
+    ]);
+
+    final heights = tester
+        .widgetList<DetailFieldRow>(find.byType(DetailFieldRow))
+        .map((row) => tester.getSize(find.byWidget(row)).height)
+        .toList();
+    expect(heights, hasLength(3));
+    for (final h in heights) {
+      expect(h, closeTo(heights.first, 0.5));
+    }
+  });
+
+  testWidgets('全部字段皆为空时各行仍等高', (tester) async {
+    await _pumpRows(tester, const [
+      DetailFieldRow(label: '用户名', value: ''),
+      DetailFieldRow(label: '密码', value: ''),
+    ]);
+
+    final heights = tester
+        .widgetList<DetailFieldRow>(find.byType(DetailFieldRow))
+        .map((row) => tester.getSize(find.byWidget(row)).height)
+        .toList();
+    expect(heights.last, closeTo(heights.first, 0.5));
+  });
+
   testWidgets('窄屏下字段行不溢出', (tester) async {
     await _pumpRows(
       tester,
