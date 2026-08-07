@@ -1,9 +1,13 @@
 import 'package:easypassword/core/theme.dart';
 import 'package:easypassword/services/settings_service.dart';
+import 'package:easypassword/state/app_state.dart';
+import 'package:easypassword/ui/common/inline_edit_form.dart';
 import 'package:easypassword/ui/common/masked_text_controller.dart';
 import 'package:easypassword/ui/common/secret_text_field.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
 
 void main() {
   test('字号选项标签唯一且兼容旧数值', () {
@@ -57,10 +61,11 @@ void main() {
     expect(find.byTooltip('隐藏测试密码'), findsOneWidget);
   });
 
-  testWidgets('移动端关闭安全键盘后改用自绘遮挡，不再声明密码输入类型', (tester) async {
+  testWidgets('移动端关闭安全键盘后改用普通文本输入类型和自绘遮挡', (tester) async {
     // 回归重点：只要 obscureText 为 true，Android 端就会给输入法叠加
-    // TYPE_TEXT_VARIATION_PASSWORD，ROM 据此强制系统安全键盘。因此关闭偏好后
-    // obscureText 必须为 false，遮挡交给控制器绘制。
+    // TYPE_TEXT_VARIATION_PASSWORD；而 enableSuggestions=false 又会叠加
+    // TYPE_TEXT_VARIATION_VISIBLE_PASSWORD。vivo 都会据此强制系统安全键盘，
+    // 因此关闭偏好后两项都不能向引擎暴露密码输入类型。
     final controller = MaskedTextEditingController(text: 'secret');
     addTearDown(controller.dispose);
     await tester.pumpWidget(
@@ -79,6 +84,10 @@ void main() {
     final field = tester.widget<TextField>(find.byType(TextField));
     expect(field.obscureText, isFalse);
     expect(field.keyboardType, TextInputType.text);
+    // Flutter Android 引擎仅在 suggestions=true 时保留 NORMAL variation；
+    // 同时单独禁止 IME 个性化学习，避免第三方输入法保存密码。
+    expect(field.enableSuggestions, isTrue);
+    expect(field.enableIMEPersonalizedLearning, isFalse);
     // 内容仍然不可见，且长按选择被关闭，避免复制到明文。
     expect(controller.maskEnabled, isTrue);
     expect(field.enableInteractiveSelection, isFalse);
@@ -107,7 +116,46 @@ void main() {
 
     final field = tester.widget<TextField>(find.byType(TextField));
     expect(field.obscureText, isTrue);
+    expect(field.enableSuggestions, isFalse);
+    expect(field.enableIMEPersonalizedLearning, isFalse);
     expect(controller.maskEnabled, isFalse);
+  });
+
+  testWidgets('内联密码字段关闭安全键盘后同样请求普通文本输入类型', (tester) async {
+    // 条目详情中的账号密码/API Key 走 InlineEditForm，必须与独立密码框保持
+    // 同一套 EditorInfo 规则，避免只修复应用锁而遗漏实际的密码编辑入口。
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    final state = AppState()..secureKeyboardEnabled = false;
+    addTearDown(state.dispose);
+    try {
+      await tester.pumpWidget(
+        ChangeNotifierProvider.value(
+          value: state,
+          child: MaterialApp(
+            home: Scaffold(
+              body: InlineEditForm(
+                title: '账号',
+                fields: const [
+                  InlineField(key: 'password', label: '密码', obscure: true),
+                ],
+                onSave: (_) {},
+                onCancel: () {},
+              ),
+            ),
+          ),
+        ),
+      );
+
+      final field = tester.widget<TextField>(find.byType(TextField));
+      expect(field.obscureText, isFalse);
+      expect(field.keyboardType, TextInputType.text);
+      expect(field.enableSuggestions, isTrue);
+      expect(field.enableIMEPersonalizedLearning, isFalse);
+      expect(field.enableInteractiveSelection, isFalse);
+    } finally {
+      // Flutter 测试会在用例返回前校验调试变量，必须同步复位平台覆盖。
+      debugDefaultTargetPlatformOverride = null;
+    }
   });
 
   test('自绘遮挡按字符数铺满圆点，与 obscureText 观感一致', () {
