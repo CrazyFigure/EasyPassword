@@ -29,6 +29,29 @@ import '../core/constants.dart';
 /// 更新请求注入点：生产环境按是否使用系统代理发起请求，测试可返回固定响应。
 typedef UpdateFetcher = Future<http.Response> Function(bool useSystemProxy);
 
+/// 发布产物所属平台，决定从 Release assets 里挑哪种扩展名的安装包。
+/// 独立于 [Platform] 是为了可注入：测试跑在 Linux/macOS 宿主上时，
+/// 直接读 Platform 会让 Windows/Android 的挑包逻辑变成不可测。
+enum UpdateTargetPlatform {
+  windows('.exe'),
+  android('.apk'),
+
+  /// 桌面 Linux/macOS 等没有发布产物的平台，不提供应用内安装。
+  unsupported(null);
+
+  const UpdateTargetPlatform(this.installerExtension);
+
+  /// 当前平台安装包的扩展名；无发布产物时为 null。
+  final String? installerExtension;
+
+  /// 按实际运行平台推导，供生产代码默认使用。
+  static UpdateTargetPlatform get current {
+    if (Platform.isWindows) return UpdateTargetPlatform.windows;
+    if (Platform.isAndroid) return UpdateTargetPlatform.android;
+    return UpdateTargetPlatform.unsupported;
+  }
+}
+
 /// 兜底注入点：返回 releases/latest 的 302 Location 响应头（拿不到时返回 null）。
 typedef UpdateLocationFetcher = Future<String?> Function();
 
@@ -50,6 +73,9 @@ class UpdateCheckResult {
   /// 安装包字节数，用于下载进度展示；未知时为 null。
   final int? installerSize;
 
+  /// 该结果对应的发布平台，决定应用内安装是否可用。
+  final UpdateTargetPlatform targetPlatform;
+
   const UpdateCheckResult({
     required this.currentVersion,
     required this.latestVersion,
@@ -61,12 +87,13 @@ class UpdateCheckResult {
     this.installerAssetName,
     this.installerDownloadUrl,
     this.installerSize,
+    this.targetPlatform = UpdateTargetPlatform.unsupported,
   });
 
   /// 是否具备应用内直接下载安装的条件：只有 Windows/Android 有发布产物，
   /// 且必须拿到了 asset 直链（302 兜底路径没有 assets 信息）。
   bool get canInstallInApp =>
-      (Platform.isWindows || Platform.isAndroid) &&
+      targetPlatform.installerExtension != null &&
       installerDownloadUrl != null &&
       installerDownloadUrl!.isNotEmpty;
 }
@@ -123,14 +150,20 @@ class UpdateService {
   final UpdateFetcher? _fetcher;
   final UpdateLocationFetcher? _locationFetcher;
 
+  /// 挑选安装包时依据的平台。默认取实际运行平台，测试可显式指定，
+  /// 使 Windows/Android 的挑包逻辑在任意宿主上都能验证。
+  final UpdateTargetPlatform targetPlatform;
+
   /// [currentVersion] 默认取 CI 注入的安装包版本；
-  /// [fetcher] 与 [locationFetcher] 仅用于隔离网络测试。
+  /// [fetcher]、[locationFetcher] 与 [targetPlatform] 仅用于隔离测试。
   UpdateService({
     this.currentVersion = AppInfo.currentVersion,
     UpdateFetcher? fetcher,
     UpdateLocationFetcher? locationFetcher,
+    UpdateTargetPlatform? targetPlatform,
   })  : _fetcher = fetcher,
-        _locationFetcher = locationFetcher;
+        _locationFetcher = locationFetcher,
+        targetPlatform = targetPlatform ?? UpdateTargetPlatform.current;
 
   /// 检测是否有新版本。失败时抛出 [UpdateCheckException]。
   Future<UpdateCheckResult> check() async {
@@ -198,6 +231,7 @@ class UpdateService {
         installerAssetName: installerInfo?.name,
         installerDownloadUrl: installerInfo?.downloadUrl,
         installerSize: installerInfo?.size,
+        targetPlatform: targetPlatform,
         updateAvailable: _isNewerVersion(latestVersion, currentVersion),
       );
     } on UpdateCheckException {
@@ -273,6 +307,7 @@ class UpdateService {
       latestVersion: latestVersion,
       releaseName: tag,
       releaseUrl: location,
+      targetPlatform: targetPlatform,
       updateAvailable: _isNewerVersion(latestVersion, currentVersion),
     );
   }
@@ -370,19 +405,11 @@ class UpdateService {
     return nums;
   }
 
-  /// 当前平台安装包的扩展名：Windows 取 .exe，Android 取 .apk。
-  /// 其他平台没有发布产物，返回 null 表示不做应用内安装。
-  static String? get _installerExtension {
-    if (Platform.isWindows) return '.exe';
-    if (Platform.isAndroid) return '.apk';
-    return null;
-  }
-
   /// 从 Release assets 中挑选当前平台的安装包（名称、直链、大小）。
   /// 同扩展名有多个候选时，优先带 setup/installer 字样的那个。
-  static _InstallerAssetInfo? _pickInstallerAsset(dynamic assets) {
+  _InstallerAssetInfo? _pickInstallerAsset(dynamic assets) {
     if (assets is! List) return null;
-    final extension = _installerExtension;
+    final extension = targetPlatform.installerExtension;
     if (extension == null) return null;
     _InstallerAssetInfo? fallback;
     for (final asset in assets) {
