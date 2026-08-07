@@ -18,8 +18,18 @@ void main() {
         'html_url': 'https://github.com/CrazyFigure/EasyPassword/releases/$tag',
         'published_at': '2026-08-06T05:50:26Z',
         'assets': [
-          {'name': 'EasyPassword-$tag.apk'},
-          {'name': 'EasyPassword-Setup-${tag.substring(1)}.exe'},
+          {
+            'name': 'EasyPassword-$tag.apk',
+            'browser_download_url':
+                'https://github.com/CrazyFigure/EasyPassword/releases/download/$tag/EasyPassword-$tag.apk',
+            'size': 25600000,
+          },
+          {
+            'name': 'EasyPassword-Setup-${tag.substring(1)}.exe',
+            'browser_download_url':
+                'https://github.com/CrazyFigure/EasyPassword/releases/download/$tag/EasyPassword-Setup-${tag.substring(1)}.exe',
+            'size': 18900000,
+          },
         ],
       })),
       200,
@@ -39,6 +49,8 @@ void main() {
     expect(result.currentVersion, '0.2.0');
     expect(result.latestVersion, '0.2.1');
     expect(result.installerAssetName, 'EasyPassword-Setup-0.2.1.exe');
+    expect(result.installerDownloadUrl, isNotEmpty);
+    expect(result.installerSize, isPositive);
   });
 
   test('安装包版本与最新 Release 相同时判定为最新版', () async {

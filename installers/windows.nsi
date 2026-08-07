@@ -1,5 +1,8 @@
-; EasyPassword Windows installer script (NSIS 3.x)
+﻿; EasyPassword Windows installer script (NSIS 3.x)
 ; Usage: makensis -DVERSION=1.0.0 -DOUTPUT=dist/EasyPassword-Setup.exe -DSOURCE=build/windows/x64/runner/Release installers/windows.nsi
+
+; 声明脚本使用 UTF-8 编码，避免中文字符串在编译时乱码
+Unicode True
 
 !include "MUI2.nsh"
 
