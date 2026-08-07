@@ -41,6 +41,9 @@ void main() {
     final service = UpdateService(
       currentVersion: '0.2.0',
       fetcher: (_) async => releaseResponse('v0.2.1'),
+      // 显式指定目标平台：测试宿主可能是 Linux（CI 的 Android job），
+      // 不注入的话挑包逻辑会因当前平台无发布产物而直接返回 null。
+      targetPlatform: UpdateTargetPlatform.windows,
     );
 
     final result = await service.check();
@@ -51,6 +54,35 @@ void main() {
     expect(result.installerAssetName, 'EasyPassword-Setup-0.2.1.exe');
     expect(result.installerDownloadUrl, isNotEmpty);
     expect(result.installerSize, isPositive);
+    expect(result.canInstallInApp, isTrue);
+  });
+
+  test('Android 平台挑选 APK 而不是 Windows 安装包', () async {
+    final service = UpdateService(
+      currentVersion: '0.2.0',
+      fetcher: (_) async => releaseResponse('v0.2.1'),
+      targetPlatform: UpdateTargetPlatform.android,
+    );
+
+    final result = await service.check();
+
+    expect(result.installerAssetName, 'EasyPassword-v0.2.1.apk');
+    expect(result.canInstallInApp, isTrue);
+  });
+
+  test('无发布产物的平台不提供应用内安装', () async {
+    final service = UpdateService(
+      currentVersion: '0.2.0',
+      fetcher: (_) async => releaseResponse('v0.2.1'),
+      targetPlatform: UpdateTargetPlatform.unsupported,
+    );
+
+    final result = await service.check();
+
+    // 仍应正确识别出新版本，只是不给应用内下载安装的入口
+    expect(result.updateAvailable, isTrue);
+    expect(result.installerAssetName, isNull);
+    expect(result.canInstallInApp, isFalse);
   });
 
   test('安装包版本与最新 Release 相同时判定为最新版', () async {
