@@ -21,7 +21,13 @@ const double _kCompactWidth = 420;
 double actionSlotWidth(BuildContext context) =>
     MediaQuery.sizeOf(context).width < _kCompactWidth ? 36 : 40;
 
-/// 等宽操作插槽：[child] 为空时仅占位，用于让各行图标列在竖向上对齐
+/// 操作插槽高度：与 IconButton(compact) 的实际高度一致。
+/// 空插槽必须撑起同样的高度，否则「没有按钮的字段行」会比
+/// 「有按钮的行」矮一截，行距看起来忽大忽小。
+double actionSlotHeight(BuildContext context) =>
+    MediaQuery.sizeOf(context).width < _kCompactWidth ? 36 : 40;
+
+/// 等宽等高操作插槽：[child] 为空时仅占位，用于让各行图标列在竖向上对齐
 class ActionSlot extends StatelessWidget {
   final Widget? child;
   final int count; // 连续占位数量，空插槽可一次占多列
@@ -32,6 +38,8 @@ class ActionSlot extends StatelessWidget {
   Widget build(BuildContext context) {
     return SizedBox(
       width: actionSlotWidth(context) * count,
+      // 固定高度：保证有值行与空值行等高
+      height: actionSlotHeight(context),
       child: child == null ? null : Center(child: child),
     );
   }
