@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FileProvider 可暴露的路径白名单。
+     更新包下载到 getTemporaryDirectory()/updates，在 Android 上对应 cache/updates；
+     此处必须声明 cache-path，否则 getUriForFile 会抛 IllegalArgumentException。 -->
+<paths>
+    <cache-path name="updates" path="updates/" />
+</paths>

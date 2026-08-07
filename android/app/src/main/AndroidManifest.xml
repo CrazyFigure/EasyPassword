@@ -1,6 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- WebDAV 同步需要网络权限 -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- 应用内更新：下载新版 APK 后拉起系统安装器 -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
     <application
         android:label="EasyPassword"
         android:name="${applicationName}"
@@ -27,6 +29,18 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <!-- 应用内更新：APK 需以 content:// URI 交给系统安装器，
+             Android 7 起直接传 file:// 会抛 FileUriExposedException。
+             authorities 必须与 MainActivity.installApk 中的字符串一致。 -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data
