@@ -126,6 +126,10 @@ class _InlineEditFormState extends State<InlineEditForm> {
     final revealed = _visible[f.key] ?? false;
     final obscure = f.obscure && !revealed;
     final maskInFlutter = obscure && !useSecureKeyboard;
+    // Flutter Android 引擎会把「禁用建议」映射成 visiblePassword 输入类型；
+    // vivo 仍会将其识别为密码框。关闭安全键盘时需允许 suggestions 配置，
+    // 才能得到普通文本 EditorInfo，实际的密码学习由独立参数继续禁止。
+    final requestNormalTextInput = f.obscure && !useSecureKeyboard;
     controller.maskEnabled = maskInFlutter;
 
     return TextField(
@@ -135,7 +139,9 @@ class _InlineEditFormState extends State<InlineEditForm> {
       keyboardType: TextInputType.text,
       // 对齐 obscureText 默认关闭选择的行为，避免长按选中后复制到明文。
       enableInteractiveSelection: maskInFlutter ? false : null,
-      enableSuggestions: !f.obscure,
+      enableSuggestions: !f.obscure || requestNormalTextInput,
+      // 敏感字段禁止输入法个性化学习，普通字段沿用系统默认行为。
+      enableIMEPersonalizedLearning: !f.obscure,
       autocorrect: !f.obscure,
       maxLines: f.obscure ? 1 : f.maxLines,
       autofocus: f == widget.fields.first,

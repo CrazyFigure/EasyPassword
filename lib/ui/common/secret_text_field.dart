@@ -72,6 +72,12 @@ class _SecretTextFieldState extends State<SecretTextField> {
     final maskInFlutter = obscure &&
         !useSecureKeyboard &&
         controller is MaskedTextEditingController;
+    // Flutter Android 引擎会在 enableSuggestions=false 时强制叠加
+    // TYPE_TEXT_VARIATION_VISIBLE_PASSWORD，即使 obscureText 已经关闭，vivo
+    // 仍会据此拉起安全键盘。关闭安全键盘后必须把该值设为 true，才能让
+    // EditorInfo 保持 TYPE_TEXT_VARIATION_NORMAL；密码学习则由下方独立关闭。
+    final requestNormalTextInput =
+        !useSecureKeyboard && controller is MaskedTextEditingController;
     if (controller is MaskedTextEditingController) {
       controller.maskEnabled = maskInFlutter;
     }
@@ -86,7 +92,9 @@ class _SecretTextFieldState extends State<SecretTextField> {
       enableInteractiveSelection: maskInFlutter ? false : null,
       autofocus: widget.autofocus,
       enabled: widget.enabled,
-      enableSuggestions: false,
+      enableSuggestions: requestNormalTextInput,
+      // 无论选择哪种键盘都禁止 IME 学习密码，避免普通输入法保存敏感内容。
+      enableIMEPersonalizedLearning: false,
       autocorrect: false,
       textInputAction: widget.textInputAction,
       onSubmitted: widget.onSubmitted,
