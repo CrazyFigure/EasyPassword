@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/constants.dart';
 import '../../state/app_state.dart';
+import 'app_toast.dart';
 import 'masked_text_controller.dart';
 
 /// 内联编辑用的单个字段定义
@@ -65,7 +66,6 @@ class _InlineEditFormState extends State<InlineEditForm> {
   late final Map<String, MaskedTextEditingController> _ctrls;
   // 敏感字段的显示状态：key -> 是否明文可见
   late final Map<String, bool> _visible;
-  String? _error;
 
   @override
   void initState() {
@@ -103,11 +103,11 @@ class _InlineEditFormState extends State<InlineEditForm> {
   }
 
   void _submit() {
-    // 必填校验：命中即就地红字提示，不弹 SnackBar
+    // 必填校验：命中即弹袖珍悬浮提示
     for (final key in widget.requiredKeys) {
       if ((_ctrls[key]?.text.trim() ?? '').isEmpty) {
         final field = widget.fields.firstWhere((f) => f.key == key);
-        setState(() => _error = '${field.label}不能为空');
+        showAppToast(context, '${field.label}不能为空', kind: ToastKind.error);
         return;
       }
     }
@@ -202,11 +202,6 @@ class _InlineEditFormState extends State<InlineEditForm> {
           for (final f in widget.fields) ...[
             _buildField(f, useSecureKeyboard),
             const SizedBox(height: 10),
-          ],
-          if (_error != null) ...[
-            Text(_error!,
-                style: const TextStyle(fontSize: 12, color: AppColors.danger)),
-            const SizedBox(height: 8),
           ],
           Row(
             mainAxisAlignment: MainAxisAlignment.end,

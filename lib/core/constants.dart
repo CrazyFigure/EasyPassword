@@ -29,6 +29,13 @@ class AppColors {
   static const Color dangerLight = Color(0xFFFFF0F0);
   static const Color success = Color(0xFF10A37F);
 
+  // 悬浮提示（袖珍 pill）：主体统一深色，语义只由左侧小图标承担。
+  // 页面上的 success/danger 是给浅底用的，放到 #262626 上会发闷，
+  // 因此这里各提亮一档，保证 14px 图标在深色 pill 上依然清晰。
+  static const Color toastSurface = Color(0xFF262626);
+  static const Color toastSuccess = Color(0xFF3DDC97);
+  static const Color toastError = Color(0xFFFF8A8A);
+
   // 站点图标色（列表缩略）
   static const Color google = Color(0xFF0B5B8E);
   static const Color github = Color(0xFF24292F);

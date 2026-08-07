@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../core/constants.dart';
 import '../models/password_item.dart';
+import 'common/app_toast.dart';
 
 class ItemEditSheet extends StatefulWidget {
   final String type;
@@ -100,9 +101,7 @@ class _ItemEditSheetState extends State<ItemEditSheet> {
           FilledButton(
             onPressed: () {
               if (_nameCtrl.text.trim().isEmpty) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('名称不能为空')),
-                );
+                showAppToast(context, '名称不能为空', kind: ToastKind.error);
                 return;
               }
               Navigator.pop(context, {

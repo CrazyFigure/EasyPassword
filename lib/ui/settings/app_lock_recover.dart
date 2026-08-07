@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/constants.dart';
 import '../../state/app_state.dart';
+import '../common/app_toast.dart';
 import '../common/masked_text_controller.dart';
 import '../common/secret_text_field.dart';
 
@@ -39,24 +40,18 @@ class _AppLockRecoverSheetState extends State<AppLockRecoverSheet> {
     if (ok) {
       setState(() => _verified = true);
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('答案错误')),
-      );
+      showAppToast(context, '答案错误', kind: ToastKind.error);
     }
   }
 
   Future<void> _reset() async {
     final pin = _newPinCtrl.text;
     if (pin.length < 4) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('密码至少 4 位')),
-      );
+      showAppToast(context, '密码至少 4 位', kind: ToastKind.error);
       return;
     }
     if (pin != _newPin2Ctrl.text) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('两次密码不一致')),
-      );
+      showAppToast(context, '两次密码不一致', kind: ToastKind.error);
       return;
     }
     setState(() => _busy = true);
