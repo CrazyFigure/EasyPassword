@@ -5,6 +5,7 @@ library;
 import 'dart:async';
 import 'dart:math';
 
+import '../core/name_sort.dart';
 import '../models/account.dart';
 import '../models/api_key.dart';
 import '../models/folder.dart';
@@ -65,13 +66,15 @@ class DataService {
     return rows.map(PasswordItem.fromMap).toList();
   }
 
-  /// 按名称升序排序的列表（需求 3.5.5 默认排序），文件夹语义同 [listItems]
+  /// 按名称升序排序的列表（需求 3.5.5 默认排序），文件夹语义同 [listItems]。
+  ///
+  /// 排序在 Dart 侧完成而不用 SQL 的 COLLATE NOCASE：后者按 UTF-8 码点比较，
+  /// 会把汉字整体排到字母之后，且汉字之间不按拼音（规则见 core/name_sort.dart）。
   Future<List<PasswordItem>> listItemsByName(String type,
       {String? folderId, bool allFolders = false}) async {
-    return listItems(type,
-        order: 'name COLLATE NOCASE ASC',
-        folderId: folderId,
-        allFolders: allFolders);
+    final items =
+        await listItems(type, folderId: folderId, allFolders: allFolders);
+    return sortByName(items, (item) => item.name);
   }
 
   Future<PasswordItem?> getItem(String id) async {
@@ -198,9 +201,11 @@ class DataService {
     return rows.map(Folder.fromMap).toList();
   }
 
-  /// 按名称升序的文件夹列表
-  Future<List<Folder>> listFoldersByName(String type) =>
-      listFolders(type, order: 'name COLLATE NOCASE ASC');
+  /// 按名称升序的文件夹列表（与条目共用 [compareNames] 规则）
+  Future<List<Folder>> listFoldersByName(String type) async {
+    final folders = await listFolders(type);
+    return sortByName(folders, (folder) => folder.name);
+  }
 
   Future<Folder?> getFolder(String id) async {
     final rows = await (await DatabaseService.db).query(

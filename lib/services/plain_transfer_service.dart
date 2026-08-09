@@ -20,6 +20,7 @@ import 'dart:convert';
 import 'package:sqflite/sqflite.dart';
 
 import '../core/constants.dart';
+import '../core/name_sort.dart';
 import 'crypto_service.dart';
 import 'data_service.dart';
 import 'database.dart';
@@ -215,6 +216,9 @@ class PlainTransferService {
       final matchedFolderIds = <String>{};
       // 同一层级新增行的递增序号，保证导入结果保持文件中的顺序
       final nextOrder = <String, int>{};
+      // 本次实际写入过条目的层级，收尾时只重排这些，不动用户没碰的部分。
+      // 元素形如 (type, folderId)；folderId 为 null 表示根层级。
+      final touchedScopes = <(String, String?)>{};
 
       // 先导入文件夹清单（v1 格式的旧文件无此节，兼容跳过）
       for (final rawFolder in _mapRows(snapshot['folders'])) {
@@ -232,6 +236,7 @@ class PlainTransferService {
           name,
           now,
           nextOrder,
+          touchedScopes,
           color: color,
         );
         matchedFolderIds.add(folderId);
@@ -247,6 +252,7 @@ class PlainTransferService {
             parsed.folder,
             now,
             nextOrder,
+            touchedScopes,
           );
           matchedFolderIds.add(folderId);
         }
@@ -269,6 +275,8 @@ class PlainTransferService {
             'deleted': 0,
           });
           added++;
+          // 新行插在末尾，这个层级需要重排
+          touchedScopes.add((parsed.type, folderId));
         } else {
           itemId = localItem['id'] as String;
           matchedItemIds.add(itemId);
@@ -276,6 +284,11 @@ class PlainTransferService {
           final urlChanged = (localItem['url'] as String?) != parsed.url;
           final noteChanged = (localItem['site_note'] as String?) != parsed.note;
           final folderChanged = (localItem['folder_id'] as String?) != folderId;
+          if (folderChanged) {
+            // 换了文件夹：来源与目标两个层级的序号都不再连续
+            touchedScopes.add((parsed.type, localItem['folder_id'] as String?));
+            touchedScopes.add((parsed.type, folderId));
+          }
           if (urlChanged || noteChanged || folderChanged) {
             await txn.update(
               'password_items',
@@ -323,6 +336,11 @@ class PlainTransferService {
           now: now,
         );
       }
+
+      // 导入的行按文件顺序拿到递增序号，那个顺序对用户没有意义（AI 识别的
+      // 输出顺序尤其随机）。这里按名称规则重排受影响层级的 sort_order，
+      // 自定义排序模式下打开列表就已经是整齐的，不必手工拖动。
+      await _resortAffectedScopes(txn, touchedScopes, now);
     });
 
     // 走与普通编辑相同的防抖通道，导入结果会随下一轮自动同步推送到其他设备
@@ -532,6 +550,81 @@ class PlainTransferService {
     return changed;
   }
 
+  /// 按名称规则重排受影响层级的 sort_order，让导入结果立即是有序的。
+  ///
+  /// 根层级的文件夹与条目共用一套序号（见 DataService._nextRootOrder），
+  /// 因此两张表要放在一起排：文件夹整体在前，各组内部按 [compareNames]。
+  /// 这与「按名称排序」模式下 AppState.rootEntries 的展示顺序一致，用户切到
+  /// 自定义排序时看到的就是同一个顺序，不会突然跳成导入时的随机次序。
+  ///
+  /// 只有序号真正变化的行才写库：无谓的 updated_at 变动会让同步把整批行
+  /// 重新推送一遍，也可能盖掉其他设备上更有意义的修改。
+  Future<void> _resortAffectedScopes(
+    DatabaseExecutor txn,
+    Set<(String, String?)> scopes,
+    int now,
+  ) async {
+    for (final (type, folderId) in scopes) {
+      // ('folders'|'password_items', id, 当前序号, 参与比较的名称)
+      final rows = <(String, String, int, String)>[];
+
+      if (folderId == null) {
+        for (final row in await txn.query(
+          'folders',
+          columns: ['id', 'name', 'sort_order'],
+          where: 'type = ? AND deleted = 0',
+          whereArgs: [type],
+        )) {
+          rows.add((
+            'folders',
+            row['id'] as String,
+            (row['sort_order'] as int?) ?? 0,
+            (row['name'] as String?) ?? '',
+          ));
+        }
+      }
+
+      final itemRows = folderId == null
+          ? await txn.query(
+              'password_items',
+              columns: ['id', 'name', 'sort_order'],
+              where: 'type = ? AND deleted = 0 AND folder_id IS NULL',
+              whereArgs: [type],
+            )
+          : await txn.query(
+              'password_items',
+              columns: ['id', 'name', 'sort_order'],
+              where: 'type = ? AND deleted = 0 AND folder_id = ?',
+              whereArgs: [type, folderId],
+            );
+      final itemStart = rows.length;
+      for (final row in itemRows) {
+        rows.add((
+          'password_items',
+          row['id'] as String,
+          (row['sort_order'] as int?) ?? 0,
+          (row['name'] as String?) ?? '',
+        ));
+      }
+
+      // 文件夹段与条目段各自排序，再顺序拼接，保证文件夹恒在前
+      final folderPart = rows.sublist(0, itemStart)
+        ..sort((a, b) => compareNames(a.$4, b.$4));
+      final itemPart = rows.sublist(itemStart)
+        ..sort((a, b) => compareNames(a.$4, b.$4));
+      final ordered = [...folderPart, ...itemPart];
+
+      for (var i = 0; i < ordered.length; i++) {
+        final (table, id, currentOrder, _) = ordered[i];
+        if (currentOrder == i) continue;
+        await txn.rawUpdate(
+          'UPDATE $table SET sort_order = ?, updated_at = ? WHERE id = ?',
+          [i, now, id],
+        );
+      }
+    }
+  }
+
   /// 覆盖模式收尾：为文件中不存在的本地条目与文件夹写入删除墓碑。
   /// 返回被删除的顶层条目数。
   Future<int> _tombstoneMissing(
@@ -583,17 +676,20 @@ class PlainTransferService {
 
   /// 按 (type, name) 找到或新建文件夹，返回文件夹 id。
   /// [color] 仅在新建时写入；已存在的文件夹保留本机颜色，避免导入反复改色。
+  /// 新建文件夹会占用根层级序号，因此把根层级登记进 [touchedScopes] 等待重排。
   Future<String> _ensureFolder(
     DatabaseExecutor txn,
     _FolderIndex folders,
     String type,
     String name,
     int now,
-    Map<String, int> nextOrder, {
+    Map<String, int> nextOrder,
+    Set<(String, String?)> touchedScopes, {
     int? color,
   }) async {
     final existing = folders.find(type, name);
     if (existing != null) return existing;
+    touchedScopes.add((type, null));
     final id = DataService.genId();
     await txn.insert('folders', {
       'id': id,

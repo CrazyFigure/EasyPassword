@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 
 import '../core/constants.dart';
 import '../core/folder_palette.dart';
+import '../core/name_sort.dart';
 import '../models/folder.dart';
 import '../models/password_item.dart';
 import '../state/app_state.dart';
@@ -17,6 +18,7 @@ import 'detail/password_detail_page.dart';
 import 'center_dialog.dart';
 import 'folder_edit_dialog.dart';
 import 'item_edit_sheet.dart';
+import 'item_list_view.dart';
 import 'move_to_folder_dialog.dart';
 
 class FolderPage extends StatefulWidget {
@@ -45,12 +47,12 @@ class _FolderPageState extends State<FolderPage> {
     _load();
   }
 
-  /// 加载本文件夹内的条目，排序方式跟随当前密码/API Key 分区设置。
+  /// 加载本文件夹内的条目。这里恒按 sort_order 取出，展示顺序在 build 里
+  /// 按当前规则派生：用户在本页切换排序方式时无需重新查库即可立即生效。
   Future<void> _load() async {
     final state = context.read<AppState>();
-    final items = state.sortModeFor(widget.type) == 'custom'
-        ? await state.data.listItems(widget.type, folderId: _folder.id)
-        : await state.data.listItemsByName(widget.type, folderId: _folder.id);
+    final items =
+        await state.data.listItems(widget.type, folderId: _folder.id);
     if (!mounted) return;
     setState(() {
       _items = items;
@@ -62,6 +64,9 @@ class _FolderPageState extends State<FolderPage> {
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
     final customSort = state.sortModeFor(widget.type) == 'custom';
+    // 名称模式与根列表共用 compareNames，两级列表的顺序规则完全一致
+    final items =
+        customSort ? _items : sortByName(_items, (item) => item.name);
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -82,6 +87,8 @@ class _FolderPageState extends State<FolderPage> {
           ],
         ),
         actions: [
+          // 与根列表共用同一个按钮和同一份分区设置：文件夹内也要能看出并切换规则
+          SortMenuButton(type: widget.type),
           IconButton(
             icon: const Icon(Icons.edit_outlined, color: AppColors.textMain),
             tooltip: '编辑文件夹',
@@ -96,7 +103,7 @@ class _FolderPageState extends State<FolderPage> {
               children: [
                 _buildToolRow(),
                 const SizedBox(height: 4),
-                Expanded(child: _buildList(customSort)),
+                Expanded(child: _buildList(items, customSort)),
               ],
             ),
       floatingActionButton: FloatingActionButton(
@@ -163,8 +170,8 @@ class _FolderPageState extends State<FolderPage> {
   }
 
   // ---- 列表 ----
-  Widget _buildList(bool customSort) {
-    if (_items.isEmpty) {
+  Widget _buildList(List<PasswordItem> items, bool customSort) {
+    if (items.isEmpty) {
       return const Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -178,8 +185,8 @@ class _FolderPageState extends State<FolderPage> {
       );
     }
     final children = <Widget>[
-      for (var i = 0; i < _items.length; i++)
-        _buildItemCard(_items[i], customSort, i),
+      for (var i = 0; i < items.length; i++)
+        _buildItemCard(items[i], customSort, i),
     ];
     // 与主列表同一处理：仅自定义排序模式使用可拖动列表，
     // 否则用普通 ListView（避免 onReorderItem 断言）
@@ -270,6 +277,8 @@ class _FolderPageState extends State<FolderPage> {
     await _load();
   }
 
+  /// 拖动重排。只在自定义排序模式下可触发，此时展示列表与 [_items] 同序，
+  /// 因此下标可以直接用来重排 [_items]。
   Future<void> _onReorder(int oldIndex, int newIndex) async {
     final list = List<PasswordItem>.from(_items);
     final moved = list.removeAt(oldIndex);

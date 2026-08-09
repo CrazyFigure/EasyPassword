@@ -391,5 +391,112 @@ void main() {
       ];
       expect(names, containsAll(['已有条目', '新条目']));
     });
+
+    test('导入后立刻按名称规则排好 sort_order', () async {
+      // AI 输出顺序是随机的，导入后 sort_order 必须已经是名称序，
+      // 用户切到自定义排序模式时看到的才不是这份随机次序
+      final result = AiImportService.parseAiJson(jsonEncode({
+        'items': [
+          for (final name in ['Zoom', '百度', 'Apple', '1Password', '阿里云'])
+            {
+              'type': ItemType.password,
+              'name': name,
+              'accounts': [
+                {'username': 'u', 'password': 'p'}
+              ],
+            },
+        ],
+      }));
+      await plainTransfer.importPlainText(result.toImportJson(),
+          mode: PlainImportMode.merge);
+
+      final db = await DatabaseService.db;
+      final ordered = [
+        for (final row in await db.query('password_items',
+            where: 'deleted = 0', orderBy: 'sort_order ASC'))
+          row['name'] as String,
+      ];
+      // 数字在前，其余按拼音：1Password → aliyun → apple → baidu → zoom
+      expect(ordered, ['1Password', '阿里云', 'Apple', '百度', 'Zoom']);
+      // 序号连续且从 0 开始，不留空洞
+      final orders = [
+        for (final row in await db.query('password_items',
+            columns: ['sort_order'],
+            where: 'deleted = 0',
+            orderBy: 'sort_order ASC'))
+          row['sort_order'] as int,
+      ];
+      expect(orders, [0, 1, 2, 3, 4]);
+    });
+
+    test('导入的文件夹与文件夹内条目同样即时排序', () async {
+      final result = AiImportService.parseAiJson(jsonEncode({
+        'items': [
+          for (final entry in [
+            ('工作', '腾讯云'),
+            ('工作', 'AWS'),
+            ('个人', '知乎'),
+            ('工作', '阿里云'),
+          ])
+            {
+              'type': ItemType.password,
+              'name': entry.$2,
+              'folder': entry.$1,
+              'accounts': [
+                {'username': 'u', 'password': 'p'}
+              ],
+            },
+        ],
+      }));
+      await plainTransfer.importPlainText(result.toImportJson(),
+          mode: PlainImportMode.merge);
+
+      final db = await DatabaseService.db;
+      // 根层级只有两个文件夹：gongzuo(工作) 在 geren(个人) 之后
+      final folders = await db.query('folders',
+          where: 'deleted = 0', orderBy: 'sort_order ASC');
+      expect([for (final row in folders) row['name']], ['个人', '工作']);
+
+      // 文件夹内条目按拼音：aliyun → aws → tengxunyun
+      final workId =
+          folders.firstWhere((row) => row['name'] == '工作')['id'] as String;
+      final inWork = await db.query('password_items',
+          where: 'folder_id = ? AND deleted = 0',
+          whereArgs: [workId],
+          orderBy: 'sort_order ASC');
+      expect([for (final row in inWork) row['name']],
+          ['阿里云', 'AWS', '腾讯云']);
+    });
+
+    test('已有条目的排序号不会因为无关导入被打乱', () async {
+      // 用户自定义拖动过的顺序：先手工排成 C → A → B
+      final itemC = await data.addItem(ItemType.password, 'CCC');
+      final itemA = await data.addItem(ItemType.password, 'AAA');
+      final itemB = await data.addItem(ItemType.password, 'BBB');
+      await data.reorderItems([itemC.id, itemA.id, itemB.id]);
+
+      // 导入一个 apikey 分区的条目，不涉及 password 分区
+      final result = AiImportService.parseAiJson(jsonEncode({
+        'items': [
+          {
+            'type': ItemType.apikey,
+            'name': 'OpenAI',
+            'accounts': [
+              {'username': 'u', 'api_keys': ['sk-1']}
+            ],
+          }
+        ],
+      }));
+      await plainTransfer.importPlainText(result.toImportJson(),
+          mode: PlainImportMode.merge);
+
+      final db = await DatabaseService.db;
+      final passwords = await db.query('password_items',
+          where: "type = 'password' AND deleted = 0",
+          orderBy: 'sort_order ASC');
+      // password 分区未被触碰，自定义顺序原样保留
+      expect([for (final row in passwords) row['name']],
+          ['CCC', 'AAA', 'BBB']);
+    });
   });
 }
