@@ -17,9 +17,10 @@ class NavTab {
   static const password = NavTab('password', '密码');
   static const apikey = NavTab('apikey', 'API Key');
   static const search = NavTab('search', '搜索');
+  static const ai = NavTab('ai', 'AI 识别');
   static const settings = NavTab('settings', '设置');
 
-  static const all = [password, apikey, search, settings];
+  static const all = [password, apikey, search, ai, settings];
 }
 
 class TabConfig {

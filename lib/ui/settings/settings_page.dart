@@ -11,6 +11,8 @@ import '../../core/constants.dart';
 import '../../state/app_state.dart';
 import '../center_dialog.dart';
 import '../common/confirm_dialog.dart';
+import 'ai_provider_list_page.dart';
+import 'ai_recognize_page.dart';
 import 'app_lock_setup.dart';
 import 'font_size_setting.dart';
 import 'plain_transfer_page.dart';
@@ -127,6 +129,30 @@ class SettingsPage extends StatelessWidget {
             onTap: () => Navigator.push(
               context,
               MaterialPageRoute(builder: (_) => const PlainTransferPage()),
+            ),
+          ),
+        ]),
+        const SizedBox(height: 16),
+        // ===== AI 助手 =====
+        const _SectionLabel('AI 助手'),
+        _SettingsCard(children: [
+          _ActionTile(
+            icon: Icons.smart_toy_outlined,
+            title: 'AI 接入点配置',
+            subtitle: '管理识别服务的协议、地址与可用模型',
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const AiProviderListPage()),
+            ),
+          ),
+          const _Divider(),
+          _ActionTile(
+            icon: Icons.document_scanner_outlined,
+            title: 'AI 识别导入',
+            subtitle: '从图片或文字中提取密码，确认后增量导入',
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const AiRecognizePage()),
             ),
           ),
         ]),

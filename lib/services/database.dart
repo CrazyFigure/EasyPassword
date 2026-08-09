@@ -16,7 +16,8 @@ class DatabaseService {
   // v4：设置补修改时间，并用同步日志持久记录离线期间的每次数据变更
   // v5：排序设置按密码/API Key 分区，并刷新设置同步触发器的键范围
   // v6：安全键盘偏好加入跨设备设置，并再次刷新设置同步触发器
-  static const int _version = 6;
+  // v7：AI 接入点配置与自定义提示词加入跨设备设置，并再次刷新设置同步触发器
+  static const int _version = 7;
 
   /// 可跨设备同步的系统设置。WebDAV 凭据、设备数据密钥和同步运行状态
   /// 必须留在本机，避免远端配置覆盖后导致设备失去访问能力。
@@ -34,6 +35,10 @@ class DatabaseService {
     'app_lock_salt',
     'security_question',
     'security_answer_hash',
+    // AI 接入点配置随快照同步，让多台设备共用同一批接入点与模型。
+    // 其中 API Key 为明文，安全性由快照整体加密承担（见 DbKeys.aiProviders）。
+    'ai_providers',
+    'ai_custom_prompt',
   };
 
   /// 测试时可注入内存数据库路径（如 sqflite_common_ffi 的 inMemoryDatabasePath）
@@ -159,6 +164,7 @@ class DatabaseService {
   /// v3 → v4：设置补修改时间，并建立同步变更日志与自动记录触发器；
   /// v4 → v5：刷新设置触发器，使两个分区排序键都能记录同步日志；
   /// v5 → v6：刷新设置触发器，使安全键盘偏好也能记录同步日志。
+  /// v6 → v7：刷新设置触发器，使 AI 接入点配置也能记录同步日志。
   static Future<void> _onUpgrade(
       Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
@@ -174,7 +180,7 @@ class DatabaseService {
           'ALTER TABLE settings ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0');
       await _createSyncJournalSchema(db);
     }
-    if (oldVersion >= 4 && oldVersion < 6) {
+    if (oldVersion >= 4 && oldVersion < 7) {
       await _recreateSyncSettingTriggers(db);
     }
   }
