@@ -26,6 +26,7 @@ dependencies:
   # 而 file_selector 的 Windows 端是原生 C++ 实现，不引入 win32 Dart 包。
   # Android 端走系统 Photo Picker/SAF，同样无需存储权限。
   file_selector: ^1.0.3
+  pinyin: 3.3.0
 
 dev_dependencies:
   flutter_test:

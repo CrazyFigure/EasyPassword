@@ -74,7 +74,7 @@ class _ItemListViewState extends State<ItemListView> {
             onPressed: () => state.setTab('search'),
           ),
           // 排序按钮（需求 3.5.5）
-          _SortMenuButton(type: widget.type),
+          SortMenuButton(type: widget.type),
           // 设置入口
           IconButton(
             icon:
@@ -558,10 +558,14 @@ class _FolderCard extends StatelessWidget {
 
 /// 排序方式入口：点击后在按钮下方弹出轻量下拉菜单
 /// （原先是居中大弹窗，对"选一个排序方式"这种小操作过重）
-class _SortMenuButton extends StatelessWidget {
+///
+/// 文件夹内页共用同一个按钮（见 folder_page.dart）：两处排序规则本就是
+/// 同一份分区设置，界面上也应当是同一个控件，避免用户在文件夹里看不出
+/// 当前规则、或以为文件夹另有一套顺序。
+class SortMenuButton extends StatelessWidget {
   final String type;
 
-  const _SortMenuButton({required this.type});
+  const SortMenuButton({super.key, required this.type});
 
   @override
   Widget build(BuildContext context) {
@@ -577,7 +581,7 @@ class _SortMenuButton extends StatelessWidget {
               ? Icons.drag_indicator_rounded
               : Icons.sort_by_alpha_rounded,
         ),
-        tooltip: customSort ? '当前：自定义排序' : '当前：按名称升序',
+        tooltip: customSort ? '当前：自定义排序' : '当前：按名称排序（数字在前，汉字按拼音）',
         style: IconButton.styleFrom(
           foregroundColor:
               customSort ? AppColors.primaryDark : AppColors.textMain,
@@ -603,9 +607,9 @@ class _SortMenuButton extends StatelessWidget {
             items: const [
               AppMenuItem(
                 value: 'name_asc',
-                label: '按名称升序',
+                label: '按名称排序',
                 icon: Icons.sort_by_alpha,
-                subtitle: '文件夹在前，A → Z 排列',
+                subtitle: '数字在前，字母与汉字按拼音',
               ),
               AppMenuItem(
                 value: 'custom',

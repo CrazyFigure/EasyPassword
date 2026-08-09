@@ -45,7 +45,7 @@ void main() {
       Icons.sort_by_alpha_rounded,
     );
     expect(nameFinder, findsOneWidget);
-    expect(find.byTooltip('当前：按名称升序'), findsOneWidget);
+    expect(find.byTooltip('当前：按名称排序（数字在前，汉字按拼音）'), findsOneWidget);
     final nameButton = tester.widget<IconButton>(nameFinder);
     expect(
       nameButton.style?.shape?.resolve(<WidgetState>{}),
