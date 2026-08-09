@@ -21,6 +21,11 @@ dependencies:
   http: ^1.2.2
   url_launcher: ^6.3.0
   win32_registry: ^3.0.3
+  # AI 识别页选取本地图片。这里用官方 file_selector 而非 file_picker：
+  # file_picker 依赖 win32 ^5.x，与 win32_registry 3.x 要求的 win32 ^6.x 冲突，
+  # 而 file_selector 的 Windows 端是原生 C++ 实现，不引入 win32 Dart 包。
+  # Android 端走系统 Photo Picker/SAF，同样无需存储权限。
+  file_selector: ^1.0.3
 
 dev_dependencies:
   flutter_test:

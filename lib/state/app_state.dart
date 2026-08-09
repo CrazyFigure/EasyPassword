@@ -13,6 +13,7 @@ import '../core/constants.dart';
 import '../models/folder.dart';
 import '../models/list_entry.dart';
 import '../models/password_item.dart';
+import '../services/ai_config_service.dart';
 import '../services/app_lock_service.dart';
 import '../services/crypto_service.dart';
 import '../services/data_service.dart';
@@ -31,6 +32,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   late final AppLockService appLock;
   late final WebDavService webdav;
   late final PlainTransferService plainTransfer;
+  late final AiConfigService aiConfig;
 
   // 当前状态
   bool initialized = false;
@@ -73,10 +75,13 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     appLock = AppLockService(crypto);
     webdav = WebDavService(crypto, data);
     plainTransfer = PlainTransferService(crypto, data);
+    aiConfig = AiConfigService();
     // 三类本地修改统一进入同一防抖队列，保存本身不等待网络。
     data.onChanged = _onLocalChanged;
     settings.onChanged = _onLocalChanged;
     appLock.onChanged = _onLocalChanged;
+    // AI 接入点配置同样参与同步，让多台设备共用同一批接入点。
+    aiConfig.onChanged = _onLocalChanged;
   }
 
   /// 初始化：读取设置与数据。同一时刻只执行一次；失败时保留服务实例并允许重试。

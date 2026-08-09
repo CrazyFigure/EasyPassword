@@ -80,6 +80,11 @@ class DbKeys {
   static const String deviceKey = 'device_key'; // 无应用锁时的本地密钥
   static const String tabVisibility = 'tab_visibility'; // json: 底部栏开关与顺序
   static const String revealAll = 'reveal_all'; // 是否显示全部密码
+  // AI 识别接入点配置（json）。API Key 以明文存放：设置项在同步合并时按 value
+  // 原样复制（见 WebDavService._applySnapshot），若用本机 device_key 加密，
+  // 其他设备将无法解密。快照整体仍由 WebDAV 凭据派生密钥加密后才上传。
+  static const String aiProviders = 'ai_providers';
+  static const String aiCustomPrompt = 'ai_custom_prompt'; // 用户追加的识别提示词
 }
 
 /// WebDAV 新配置的默认值。远端路径独立于服务器根地址，便于应用自动建目录。

@@ -10,6 +10,7 @@ import '../state/app_state.dart';
 import 'center_dialog.dart';
 import 'item_list_view.dart';
 import 'search_page.dart';
+import 'settings/ai_recognize_page.dart';
 import 'settings/settings_page.dart';
 
 class HomePage extends StatefulWidget {
@@ -25,6 +26,8 @@ class _HomePageState extends State<HomePage> {
     'password': const ItemListView(type: ItemType.password),
     'apikey': const ItemListView(type: ItemType.apikey),
     'search': const SearchPage(),
+    // standalone: false —— 外层已有 Scaffold，避免双层 AppBar
+    'ai': const AiRecognizePage(standalone: false),
     'settings': const SettingsPage(),
   };
 
@@ -179,6 +182,8 @@ class _NavItem extends StatelessWidget {
         return Icons.key_outlined;
       case 'search':
         return Icons.search;
+      case 'ai':
+        return Icons.auto_awesome_outlined;
       case 'settings':
         return Icons.settings_outlined;
       default:
