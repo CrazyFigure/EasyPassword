@@ -98,4 +98,58 @@ void main() {
         .toList();
     expect(titles, ['Zoom', '百度', 'Apple', '阿里云']);
   });
+
+  /// 点击后等界面稳定：菜单与弹窗回调里有库写入，需让出真实事件循环
+  /// （pumpAndSettle 走的是 fake async 时钟，等不到 sqflite 的真实 IO）
+  Future<void> tapAndSettle(WidgetTester tester, Finder target) async {
+    await tester.tap(target);
+    for (var i = 0; i < 50; i++) {
+      await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)));
+      await tester.pump();
+    }
+  }
+
+  testWidgets('文件夹内每条条目都有「⋮」操作按钮', (tester) async {
+    await pumpFolder(tester);
+    // 4 条夹具数据，非批量模式下每行一个入口
+    expect(find.byTooltip('条目操作'), findsNWidgets(4));
+  });
+
+  testWidgets('通过条目「⋮」菜单可把单条移出到上一级', (tester) async {
+    await pumpFolder(tester);
+
+    await tapAndSettle(tester, find.byTooltip('条目操作').first);
+    await tapAndSettle(tester, find.text('移动到文件夹'));
+    // 文件夹内页允许移出，弹窗里应有该选项
+    expect(find.text('移出到上一级'), findsOneWidget);
+    await tapAndSettle(tester, find.text('移出到上一级'));
+
+    // 列表首条是「阿里云」（名称序），移出后它应落到根目录
+    final root = await tester
+        .runAsync(() => state.data.listItems(ItemType.password));
+    expect(root!.map((e) => e.name), ['阿里云']);
+    // listItems 按 sort_order 返回（与展示用的名称序不同），故不比较顺序
+    final inFolder = await tester.runAsync(
+        () => state.data.listItems(ItemType.password, folderId: folder.id));
+    expect(inFolder!.map((e) => e.name),
+        unorderedEquals(['Apple', '百度', 'Zoom']));
+  });
+
+  testWidgets('通过条目「⋮」菜单可删除单条', (tester) async {
+    await pumpFolder(tester);
+
+    await tapAndSettle(tester, find.byTooltip('条目操作').first);
+    await tapAndSettle(tester, find.text('删除条目'));
+    await tapAndSettle(tester, find.widgetWithText(FilledButton, '删除'));
+
+    // 首条「阿里云」被删除，其余三条保留且未被移出文件夹
+    final inFolder = await tester.runAsync(
+        () => state.data.listItems(ItemType.password, folderId: folder.id));
+    expect(inFolder!.map((e) => e.name),
+        unorderedEquals(['Apple', '百度', 'Zoom']));
+    final root = await tester
+        .runAsync(() => state.data.listItems(ItemType.password));
+    expect(root, isEmpty);
+  });
 }

@@ -316,7 +316,7 @@ class _ItemListViewState extends State<ItemListView> {
     await state.refresh();
   }
 
-  /// 删除文件夹：内部条目移回根目录，不随文件夹一起删除
+  /// 删除文件夹：连同内部条目一并删除
   Future<void> _deleteFolder(Folder folder) async {
     final count = context.read<AppState>().folderCounts[folder.id] ?? 0;
     final ok = await showConfirmDialog(
@@ -325,13 +325,13 @@ class _ItemListViewState extends State<ItemListView> {
       content: count == 0
           ? '确定删除文件夹「${folder.name}」吗？'
           : '确定删除文件夹「${folder.name}」吗？\n\n'
-              '其中的 $count 个条目不会被删除，将移回上一级列表。',
+              '其中的 $count 个条目将一并删除，此操作不可撤销。',
       confirmText: '删除',
       isDangerous: true,
     );
     if (ok != true || !mounted) return;
     final state = context.read<AppState>();
-    await state.data.deleteFolder(folder.id);
+    await state.data.deleteFolder(folder.id, deleteContents: true);
     await state.refresh();
   }
 
@@ -348,60 +348,44 @@ class _ItemListViewState extends State<ItemListView> {
     await state.refresh();
   }
 
+  /// 单条条目移动到文件夹（右侧「⋮」菜单入口，无需先进批量模式）
+  Future<void> _moveItemToFolder(PasswordItem item) async {
+    final state = context.read<AppState>();
+    final folders = _isApi ? state.apikeyFolders : state.passwordFolders;
+    final choice = await showMoveToFolderDialog(
+      context: context,
+      folders: folders,
+      // 根列表里的条目本就在根目录，不需要"移出"选项
+      allowRoot: false,
+    );
+    if (choice == null || !mounted) return;
+    await state.data.moveItemsToFolder([item.id], choice.folderId);
+    await state.refresh();
+  }
+
+  /// 单条条目删除（右侧「⋮」菜单入口）
+  Future<void> _deleteSingleItem(PasswordItem item) async {
+    final ok = await showConfirmDialog(
+      context: context,
+      title: '删除条目',
+      content: '确定删除「${item.name}」吗？此操作不可撤销。',
+      confirmText: '删除',
+      isDangerous: true,
+    );
+    if (ok != true || !mounted) return;
+    final state = context.read<AppState>();
+    await state.data.deleteItem(item.id);
+    await state.refresh();
+  }
+
   /// [entryKey] 为混排列表里的唯一 Key（文件夹与条目 id 空间独立，需加前缀区分）
   Widget _buildItemCard(AppState state, PasswordItem item, bool customSort,
       int index, String entryKey) {
     final selected = _selected.contains(item.id);
+    // 自定义排序且非批量模式时整条可长按拖动，此时长按手势归拖动所有
+    final draggable = customSort && !_batchMode;
 
-    // 自定义排序模式：整条可长按拖动。
-    // 用 Delayed 版本而非 ReorderableDragStartListener：后者按下即接管手势，
-    // 会吃掉 ListTile 的点击，导致点条目进不了详情页。
-    if (customSort && !_batchMode) {
-      return QuickReorderableDelayedDragStartListener(
-        // key 必须挂在 itemBuilder 返回的根 widget 上，
-        // 否则 ReorderableListView 会断言「every item must have a key」
-        key: ValueKey(entryKey),
-        index: index,
-        child: Card(
-          margin: const EdgeInsets.only(bottom: 10),
-          color: selected ? AppColors.primaryLight : Colors.white,
-          clipBehavior: Clip.antiAlias,
-          child: ListTile(
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => _isApi
-                      ? ApiKeyDetailPage(item: item)
-                      : PasswordDetailPage(item: item),
-                ),
-              );
-            },
-            leading: _SiteAvatar(item: item),
-            title: Text(
-              item.name,
-              style: const TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.textMain),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            subtitle: Text(
-              item.siteNote.isEmpty ? item.url : item.siteNote,
-              style: const TextStyle(fontSize: 12, color: AppColors.textWeak),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            trailing:
-                const Icon(Icons.chevron_right, color: AppColors.textFaint),
-          ),
-        ),
-      );
-    }
-
-    // 普通模式或批量模式
-    return Card(
+    final card = Card(
       key: ValueKey(entryKey),
       margin: const EdgeInsets.only(bottom: 10),
       color: selected ? AppColors.primaryLight : Colors.white,
@@ -423,7 +407,8 @@ class _ItemListViewState extends State<ItemListView> {
             );
           }
         },
-        onLongPress: _batchMode
+        // 可拖动时不能再用长按进批量，否则与拖动手势冲突
+        onLongPress: (_batchMode || draggable)
             ? null
             : () => setState(() {
                   _batchMode = true;
@@ -450,9 +435,57 @@ class _ItemListViewState extends State<ItemListView> {
                 selected ? Icons.check_circle : Icons.circle_outlined,
                 color: selected ? AppColors.primary : AppColors.textFaint,
               )
-            : const Icon(Icons.chevron_right, color: AppColors.textFaint),
+            : Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // 条目操作：与文件夹卡片同一套「⋮」下拉菜单
+                  Builder(
+                    builder: (btnContext) => IconButton(
+                      icon: const Icon(Icons.more_vert,
+                          size: 18, color: AppColors.textFaint),
+                      tooltip: '条目操作',
+                      onPressed: () async {
+                        final choice = await showAppMenu<String>(
+                          anchorContext: btnContext,
+                          width: 200,
+                          items: const [
+                            AppMenuItem(
+                              value: 'move',
+                              label: '移动到文件夹',
+                              icon: Icons.drive_file_move_outline,
+                              subtitle: '选择目标文件夹',
+                            ),
+                            AppMenuItem(
+                              value: 'delete',
+                              label: '删除条目',
+                              icon: Icons.delete_outline,
+                              isDangerous: true,
+                            ),
+                          ],
+                        );
+                        if (choice == 'move') await _moveItemToFolder(item);
+                        if (choice == 'delete') await _deleteSingleItem(item);
+                      },
+                    ),
+                  ),
+                  const Icon(Icons.chevron_right, color: AppColors.textFaint),
+                ],
+              ),
       ),
     );
+
+    // 用 Delayed 版本而非 ReorderableDragStartListener：后者按下即接管手势，
+    // 会吃掉 ListTile 的点击，导致点条目进不了详情页。
+    if (draggable) {
+      return QuickReorderableDelayedDragStartListener(
+        // key 必须挂在 itemBuilder 返回的根 widget 上，
+        // 否则 ReorderableListView 会断言「every item must have a key」
+        key: ValueKey(entryKey),
+        index: index,
+        child: card,
+      );
+    }
+    return card;
   }
 }
 
