@@ -10,6 +10,7 @@ import '../core/name_sort.dart';
 import '../models/folder.dart';
 import '../models/password_item.dart';
 import '../state/app_state.dart';
+import 'common/app_menu.dart';
 import 'common/confirm_dialog.dart';
 import 'common/drag_handle.dart';
 import 'common/site_color.dart';
@@ -208,6 +209,10 @@ class _FolderPageState extends State<FolderPage> {
 
   Widget _buildItemCard(PasswordItem item, bool customSort, int index) {
     final selected = _selected.contains(item.id);
+    // 自定义排序且非批量模式时整条可长按拖动（与主列表一致），
+    // 此时长按手势归拖动所有，不能再用来进批量模式
+    final draggable = customSort && !_batchMode;
+
     final card = Card(
       key: ValueKey(item.id),
       margin: const EdgeInsets.only(bottom: 10),
@@ -223,7 +228,7 @@ class _FolderPageState extends State<FolderPage> {
             _openDetail(item);
           }
         },
-        onLongPress: _batchMode
+        onLongPress: (_batchMode || draggable)
             ? null
             : () => setState(() {
                   _batchMode = true;
@@ -250,11 +255,46 @@ class _FolderPageState extends State<FolderPage> {
                 selected ? Icons.check_circle : Icons.circle_outlined,
                 color: selected ? AppColors.primary : AppColors.textFaint,
               )
-            : const Icon(Icons.chevron_right, color: AppColors.textFaint),
+            : Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // 条目操作：与主列表同一套「⋮」下拉菜单
+                  Builder(
+                    builder: (btnContext) => IconButton(
+                      icon: const Icon(Icons.more_vert,
+                          size: 18, color: AppColors.textFaint),
+                      tooltip: '条目操作',
+                      onPressed: () async {
+                        final choice = await showAppMenu<String>(
+                          anchorContext: btnContext,
+                          width: 200,
+                          items: const [
+                            AppMenuItem(
+                              value: 'move',
+                              label: '移动到文件夹',
+                              icon: Icons.drive_file_move_outline,
+                              // 文件夹内页额外支持移出到上一级
+                              subtitle: '可选其他文件夹或移出',
+                            ),
+                            AppMenuItem(
+                              value: 'delete',
+                              label: '删除条目',
+                              icon: Icons.delete_outline,
+                              isDangerous: true,
+                            ),
+                          ],
+                        );
+                        if (choice == 'move') await _moveSingleItem(item);
+                        if (choice == 'delete') await _deleteSingleItem(item);
+                      },
+                    ),
+                  ),
+                  const Icon(Icons.chevron_right, color: AppColors.textFaint),
+                ],
+              ),
       ),
     );
-    // 自定义排序且非批量模式时整条可长按拖动（与主列表一致）
-    if (customSort && !_batchMode) {
+    if (draggable) {
       return QuickReorderableDelayedDragStartListener(
         key: ValueKey(item.id),
         index: index,
@@ -262,6 +302,39 @@ class _FolderPageState extends State<FolderPage> {
       );
     }
     return card;
+  }
+
+  /// 单条条目移动（右侧「⋮」菜单入口，无需先进批量模式）。
+  /// 与批量移动共用弹窗：这里同样允许「移出到上一级」。
+  Future<void> _moveSingleItem(PasswordItem item) async {
+    final state = context.read<AppState>();
+    final folders = _isApi ? state.apikeyFolders : state.passwordFolders;
+    final choice = await showMoveToFolderDialog(
+      context: context,
+      folders: folders,
+      allowRoot: true,
+      currentFolderId: _folder.id,
+    );
+    if (choice == null || !mounted) return;
+    await state.data.moveItemsToFolder([item.id], choice.folderId);
+    await _load();
+    await state.refresh();
+  }
+
+  /// 单条条目删除（右侧「⋮」菜单入口）
+  Future<void> _deleteSingleItem(PasswordItem item) async {
+    final ok = await showConfirmDialog(
+      context: context,
+      title: '删除条目',
+      content: '确定删除「${item.name}」吗？此操作不可撤销。',
+      confirmText: '删除',
+      isDangerous: true,
+    );
+    if (ok != true || !mounted) return;
+    final state = context.read<AppState>();
+    await state.data.deleteItem(item.id);
+    await _load();
+    await state.refresh();
   }
 
   Future<void> _openDetail(PasswordItem item) async {
