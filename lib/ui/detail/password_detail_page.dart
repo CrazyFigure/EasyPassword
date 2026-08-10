@@ -15,6 +15,7 @@ import '../common/copy_util.dart';
 import '../common/detail_field_row.dart';
 import '../common/drag_handle.dart';
 import '../common/inline_edit_form.dart';
+import '../common/reveal_scroll.dart';
 import '../common/row_action_menu.dart';
 import '../common/site_color.dart';
 import '../item_edit_sheet.dart';
@@ -33,12 +34,20 @@ class _PasswordDetailPageState extends State<PasswordDetailPage> {
   bool _loading = true;
   bool _reveal = false; // 本页"显示全部"开关
   bool _adding = false; // 是否正在就地新增账号
+  // 页面滚动控制器：新增账号后据此把新卡片滚进视野
+  final _scrollCtrl = ScrollController();
 
   @override
   void initState() {
     super.initState();
     _item = widget.item;
     _load();
+  }
+
+  @override
+  void dispose() {
+    _scrollCtrl.dispose();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -76,6 +85,7 @@ class _PasswordDetailPageState extends State<PasswordDetailPage> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : ListView(
+              controller: _scrollCtrl,
               padding: const EdgeInsets.all(16),
               children: [
                 // 站点信息头（URL 可复制）
@@ -166,7 +176,7 @@ class _PasswordDetailPageState extends State<PasswordDetailPage> {
                   OutlinedButton.icon(
                     icon: const Icon(Icons.add, size: 18),
                     label: const Text('添加账号'),
-                    onPressed: () => setState(() => _adding = true),
+                    onPressed: _startAdding,
                   ),
                 const SizedBox(height: 12),
                 // 浏览器跳转（需求 1.4：二次确认）
@@ -231,6 +241,17 @@ class _PasswordDetailPageState extends State<PasswordDetailPage> {
     }
   }
 
+  /// 展开就地新增表单，并把它滚进视野。
+  ///
+  /// 账号多时「添加账号」按钮本就在屏幕下缘，展开的表单会顶出可视区，
+  /// 用户点完按钮看不到输入框，得自己往下翻。
+  void _startAdding() {
+    setState(() => _adding = true);
+    afterNextFrame(() {
+      if (mounted) revealBottom(_scrollCtrl);
+    });
+  }
+
   /// 就地新增账号保存
   Future<void> _saveNewAccount(Map<String, String> values) async {
     final state = context.read<AppState>();
@@ -244,6 +265,11 @@ class _PasswordDetailPageState extends State<PasswordDetailPage> {
     setState(() => _adding = false);
     await _load();
     await state.refresh();
+    if (!mounted) return;
+    // 新账号追加在列表末尾，滚到底即可看到刚存下的这条
+    afterNextFrame(() {
+      if (mounted) revealBottom(_scrollCtrl);
+    });
   }
 
   Future<void> _openBrowser() async {
@@ -479,8 +505,8 @@ class _AccountCardState extends State<_AccountCard> {
                       fontWeight: FontWeight.w600,
                       color: AppColors.textMain)),
               const Spacer(),
-              // 前两列留空：本行无复制/显示操作，占位以对齐下方各行
-              const ActionSlot(count: 2),
+              // 前一列留空：本行无复制操作，占位以对齐下方各行的「显示/隐藏」列
+              const ActionSlot(),
               ActionSlot(
                 child: RowActionMenu(
                   size: 18,

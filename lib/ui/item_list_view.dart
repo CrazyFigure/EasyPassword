@@ -14,6 +14,8 @@ import '../state/app_state.dart';
 import 'common/app_menu.dart';
 import 'common/confirm_dialog.dart';
 import 'common/drag_handle.dart';
+import 'common/reveal_scroll.dart';
+import 'common/row_trailing.dart';
 import 'common/site_color.dart';
 import 'detail/apikey_detail_page.dart';
 import 'detail/password_detail_page.dart';
@@ -26,14 +28,56 @@ class ItemListView extends StatefulWidget {
   const ItemListView({super.key, required this.type});
 
   @override
-  State<ItemListView> createState() => _ItemListViewState();
+  State<ItemListView> createState() => ItemListViewState();
 }
 
-class _ItemListViewState extends State<ItemListView> {
+class ItemListViewState extends State<ItemListView> {
   bool _batchMode = false;
   final Set<String> _selected = {};
+  // 列表滚动控制器：新增条目后据此把新行滚进视野
+  final _scrollCtrl = ScrollController();
+  // 待定位的行 Key（[ListEntry.entryKey]）。新增写库后置位，
+  // 待列表用新数据重新布局完再消费，此时才能算出正确的滚动位置。
+  String? _pendingRevealKey;
 
   bool get _isApi => widget.type == ItemType.apikey;
+
+  @override
+  void dispose() {
+    _scrollCtrl.dispose();
+    super.dispose();
+  }
+
+  /// 供外部（[HomePage] 的新增入口）调用：新增完成后定位到该条目。
+  ///
+  /// 新增走的是页面级 FAB，而列表在本 State 内，因此用 GlobalKey 反向调用，
+  /// 避免把滚动控制器提升到 HomePage 造成两处状态纠缠。
+  void revealItem(String itemId) {
+    setState(() => _pendingRevealKey = 'item-$itemId');
+  }
+
+  /// 定位到某个文件夹行（新建文件夹后调用）
+  void revealFolder(String folderId) {
+    setState(() => _pendingRevealKey = 'folder-$folderId');
+  }
+
+  /// 消费待定位请求：在本帧渲染完成后按新数据算位置并滚动。
+  void _consumePendingReveal(List<ListEntry> entries) {
+    final key = _pendingRevealKey;
+    if (key == null) return;
+    final index = entries.indexWhere((e) => e.entryKey == key);
+    // 目标已不在列表中（例如被同步删除）：丢弃请求，不做无意义的滚动
+    _pendingRevealKey = null;
+    if (index < 0) return;
+    afterNextFrame(() {
+      if (!mounted) return;
+      revealIndex(
+        controller: _scrollCtrl,
+        index: index,
+        itemCount: entries.length,
+      );
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -41,6 +85,8 @@ class _ItemListViewState extends State<ItemListView> {
     // 文件夹与条目合并为统一的行序列，排序规则见 AppState.rootEntries
     final entries = state.rootEntries(widget.type);
     final customSort = state.sortModeFor(widget.type) == 'custom';
+    // 新数据已就位，可以安排本轮的滚动定位
+    _consumePendingReveal(entries);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -202,8 +248,12 @@ class _ItemListViewState extends State<ItemListView> {
     final result = await showFolderEditDialog(context: context);
     if (result == null || !mounted) return;
     final state = context.read<AppState>();
-    await state.data.addFolder(widget.type, result.name, color: result.color);
+    final folder =
+        await state.data.addFolder(widget.type, result.name, color: result.color);
     await state.refresh();
+    if (!mounted) return;
+    // 新建的文件夹按当前排序规则可能落在列表任意位置，滚过去让用户看到
+    revealFolder(folder.id);
   }
 
   /// 把批量选中的条目移动到某个文件夹（或移出到根目录）
@@ -243,7 +293,8 @@ class _ItemListViewState extends State<ItemListView> {
     // ReorderableListView.builder，否则用普通 ListView（无拖动也避免断言）。
     if (customSort) {
       return ReorderableListView.builder(
-        padding: const EdgeInsets.fromLTRB(16, 4, 16, 80),
+        scrollController: _scrollCtrl,
+        padding: kListPadding,
         itemCount: children.length,
         // 关闭默认把手：桌面端会自动叠加一个，与卡片内的把手重复错位
         buildDefaultDragHandles: false,
@@ -255,7 +306,8 @@ class _ItemListViewState extends State<ItemListView> {
       );
     }
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 80),
+      controller: _scrollCtrl,
+      padding: kListPadding,
       children: children,
     );
   }
@@ -415,6 +467,8 @@ class _ItemListViewState extends State<ItemListView> {
                   _selected.add(item.id);
                 }),
         leading: _SiteAvatar(item: item),
+        // 右侧收紧：行尾图标本就贴边，默认的 16px 反而把它们往标题挤
+        contentPadding: kRowContentPadding,
         title: Text(
           item.name,
           style: const TextStyle(
@@ -435,41 +489,31 @@ class _ItemListViewState extends State<ItemListView> {
                 selected ? Icons.check_circle : Icons.circle_outlined,
                 color: selected ? AppColors.primary : AppColors.textFaint,
               )
-            : Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // 条目操作：与文件夹卡片同一套「⋮」下拉菜单
-                  Builder(
-                    builder: (btnContext) => IconButton(
-                      icon: const Icon(Icons.more_vert,
-                          size: 18, color: AppColors.textFaint),
-                      tooltip: '条目操作',
-                      onPressed: () async {
-                        final choice = await showAppMenu<String>(
-                          anchorContext: btnContext,
-                          width: 200,
-                          items: const [
-                            AppMenuItem(
-                              value: 'move',
-                              label: '移动到文件夹',
-                              icon: Icons.drive_file_move_outline,
-                              subtitle: '选择目标文件夹',
-                            ),
-                            AppMenuItem(
-                              value: 'delete',
-                              label: '删除条目',
-                              icon: Icons.delete_outline,
-                              isDangerous: true,
-                            ),
-                          ],
-                        );
-                        if (choice == 'move') await _moveItemToFolder(item);
-                        if (choice == 'delete') await _deleteSingleItem(item);
-                      },
-                    ),
-                  ),
-                  const Icon(Icons.chevron_right, color: AppColors.textFaint),
-                ],
+            // 条目操作：与文件夹卡片同一套「⋮」下拉菜单
+            : RowTrailing(
+                menuTooltip: '条目操作',
+                onMenu: (btnContext) async {
+                  final choice = await showAppMenu<String>(
+                    anchorContext: btnContext,
+                    width: 200,
+                    items: const [
+                      AppMenuItem(
+                        value: 'move',
+                        label: '移动到文件夹',
+                        icon: Icons.drive_file_move_outline,
+                        subtitle: '选择目标文件夹',
+                      ),
+                      AppMenuItem(
+                        value: 'delete',
+                        label: '删除条目',
+                        icon: Icons.delete_outline,
+                        isDangerous: true,
+                      ),
+                    ],
+                  );
+                  if (choice == 'move') await _moveItemToFolder(item);
+                  if (choice == 'delete') await _deleteSingleItem(item);
+                },
               ),
       ),
     );
@@ -530,6 +574,8 @@ class _FolderCard extends StatelessWidget {
             child: Icon(Icons.folder_rounded,
                 size: 22, color: FolderPalette.colorOf(folder.color)),
           ),
+          // 与条目行同一套右侧留白，两类行的图标竖向对齐
+          contentPadding: kRowContentPadding,
           title: Text(
             folder.name,
             style: const TextStyle(
@@ -545,43 +591,33 @@ class _FolderCard extends StatelessWidget {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // 文件夹操作：统一样式的轻量下拉菜单
-              Builder(
-                builder: (btnContext) => IconButton(
-                  icon: const Icon(Icons.more_vert,
-                      size: 18, color: AppColors.textFaint),
-                  tooltip: '文件夹操作',
-                  onPressed: enabled
-                      ? () async {
-                          final choice = await showAppMenu<String>(
-                            anchorContext: btnContext,
-                            width: 190,
-                            items: const [
-                              AppMenuItem(
-                                value: 'edit',
-                                label: '编辑文件夹',
-                                icon: Icons.edit_outlined,
-                                subtitle: '修改名称与颜色',
-                              ),
-                              AppMenuItem(
-                                value: 'delete',
-                                label: '删除文件夹',
-                                icon: Icons.delete_outline,
-                                isDangerous: true,
-                              ),
-                            ],
-                          );
-                          if (choice == 'edit') onEdit();
-                          if (choice == 'delete') onDelete();
-                        }
-                      : null,
-                ),
-              ),
-              const Icon(Icons.chevron_right, color: AppColors.textFaint),
-            ],
+          // 文件夹操作：统一样式的轻量下拉菜单
+          trailing: RowTrailing(
+            menuTooltip: '文件夹操作',
+            onMenu: enabled
+                ? (btnContext) async {
+                    final choice = await showAppMenu<String>(
+                      anchorContext: btnContext,
+                      width: 190,
+                      items: const [
+                        AppMenuItem(
+                          value: 'edit',
+                          label: '编辑文件夹',
+                          icon: Icons.edit_outlined,
+                          subtitle: '修改名称与颜色',
+                        ),
+                        AppMenuItem(
+                          value: 'delete',
+                          label: '删除文件夹',
+                          icon: Icons.delete_outline,
+                          isDangerous: true,
+                        ),
+                      ],
+                    );
+                    if (choice == 'edit') onEdit();
+                    if (choice == 'delete') onDelete();
+                  }
+                : null,
           ),
         ),
       ),

@@ -17,6 +17,7 @@ import '../common/copy_util.dart';
 import '../common/detail_field_row.dart';
 import '../common/drag_handle.dart';
 import '../common/inline_edit_form.dart';
+import '../common/reveal_scroll.dart';
 import '../common/row_action_menu.dart';
 import '../common/site_color.dart';
 import '../item_edit_sheet.dart';
@@ -35,12 +36,21 @@ class _ApiKeyDetailPageState extends State<ApiKeyDetailPage> {
   bool _loading = true;
   bool _reveal = false; // 本页"显示全部"开关
   bool _adding = false; // 是否正在就地新增用户
+  // 页面滚动控制器：新增用户后据此把新卡片滚进视野。
+  // 用户卡片内的 API Key 新增同样借它滚动（整页只有这一个滚动容器）。
+  final _scrollCtrl = ScrollController();
 
   @override
   void initState() {
     super.initState();
     _item = widget.item;
     _load();
+  }
+
+  @override
+  void dispose() {
+    _scrollCtrl.dispose();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -78,6 +88,7 @@ class _ApiKeyDetailPageState extends State<ApiKeyDetailPage> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : ListView(
+              controller: _scrollCtrl,
               padding: const EdgeInsets.all(16),
               children: [
                 _SiteHeader(item: _item),
@@ -164,7 +175,7 @@ class _ApiKeyDetailPageState extends State<ApiKeyDetailPage> {
                   OutlinedButton.icon(
                     icon: const Icon(Icons.person_add_alt, size: 18),
                     label: const Text('添加用户'),
-                    onPressed: () => setState(() => _adding = true),
+                    onPressed: _startAdding,
                   ),
                 const SizedBox(height: 12),
                 // 浏览器跳转（需求 2.5：二次确认）
@@ -229,6 +240,16 @@ class _ApiKeyDetailPageState extends State<ApiKeyDetailPage> {
     }
   }
 
+  /// 展开就地新增表单，并把它滚进视野。
+  ///
+  /// 用户多时「添加用户」按钮本就在屏幕下缘，展开的表单会顶出可视区。
+  void _startAdding() {
+    setState(() => _adding = true);
+    afterNextFrame(() {
+      if (mounted) revealBottom(_scrollCtrl);
+    });
+  }
+
   /// 就地新增用户保存
   Future<void> _saveNewUser(Map<String, String> values) async {
     final state = context.read<AppState>();
@@ -242,6 +263,11 @@ class _ApiKeyDetailPageState extends State<ApiKeyDetailPage> {
     setState(() => _adding = false);
     await _load();
     await state.refresh();
+    if (!mounted) return;
+    // 新用户追加在列表末尾，滚到底即可看到刚存下的这条
+    afterNextFrame(() {
+      if (mounted) revealBottom(_scrollCtrl);
+    });
   }
 
   Future<void> _openBrowser() async {
@@ -286,6 +312,9 @@ class _UserCardState extends State<_UserCard> {
   int? _plainPwdLength; // 明文位数，仅用于铺满等长星号
   bool _editing = false; // 用户信息就地编辑态
   bool _addingKey = false; // 是否正在就地新增 API Key
+  // 卡片内 API Key 区域末尾的锚点：新增后据此把目标滚进视野。
+  // 这里不能用「滚到页面底部」——本卡片可能不是最后一张，滚到底会滑过头。
+  final _keyAnchorKey = GlobalKey();
 
   @override
   void initState() {
@@ -405,7 +434,8 @@ class _UserCardState extends State<_UserCard> {
                 overflow: TextOverflow.ellipsis,
               ),
             ),
-            const ActionSlot(count: 2),
+            // 前一列留空：本行无复制操作，占位以对齐下方各行的「显示/隐藏」列
+            const ActionSlot(),
             ActionSlot(
               child: RowActionMenu(
                 size: 16,
@@ -510,10 +540,12 @@ class _UserCardState extends State<_UserCard> {
                 ),
                 icon: const Icon(Icons.add, size: 16),
                 label: const Text('添加 API Key', style: TextStyle(fontSize: 13)),
-                onPressed: () => setState(() => _addingKey = true),
+                onPressed: _startAddingKey,
               ),
             ),
           ],
+          // 定位锚点：紧跟在 API Key 区域末尾，零高度不影响布局
+          SizedBox(key: _keyAnchorKey),
         ],
       ),
     );
@@ -534,6 +566,14 @@ class _UserCardState extends State<_UserCard> {
     if (mounted) setState(() => _pwdRevealed = !_pwdRevealed);
   }
 
+  /// 展开就地新增 API Key 的表单，并把它滚进视野
+  void _startAddingKey() {
+    setState(() => _addingKey = true);
+    afterNextFrame(() {
+      if (mounted) revealKey(_keyAnchorKey);
+    });
+  }
+
   /// 就地新增 API Key 保存
   Future<void> _saveNewKey(Map<String, String> values) async {
     final state = context.read<AppState>();
@@ -546,6 +586,11 @@ class _UserCardState extends State<_UserCard> {
     setState(() => _addingKey = false);
     await _loadKeys();
     await state.refresh();
+    if (!mounted) return;
+    // 新 key 追加在本卡片的 key 列表末尾，滚到锚点即可看到
+    afterNextFrame(() {
+      if (mounted) revealKey(_keyAnchorKey);
+    });
   }
 
   /// 就地编辑用户信息保存
