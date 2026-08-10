@@ -55,8 +55,8 @@ Future<void> revealIndex({
 /// 滚到底就是滚到目标。详情页各卡片高度不一（备注行可有可无、API Key 数量
 /// 不等），反推行高不成立，而"到底部"本身就是精确的。
 ///
-/// 分两次滚动：新展开的卡片里有 autofocus 的输入框，聚焦会带来键盘内边距，
-/// 内嵌的账号列表也要等自己那一帧才定高，因此第一次 animateTo 结束时
+/// 分两次滚动：新展开的卡片内嵌的账号列表要等自己那一帧才定高，桌面端
+/// 自动聚焦还会额外带来一点内边距，因此第一次 animateTo 结束时
 /// maxScrollExtent 往往还会再长一截。滚完再取一次，长了就补上。
 Future<void> revealBottom(ScrollController controller) async {
   if (!controller.hasClients) return;

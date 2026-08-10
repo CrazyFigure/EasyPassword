@@ -7,6 +7,7 @@ import '../core/constants.dart';
 import '../core/folder_palette.dart';
 import 'center_dialog.dart';
 import 'common/app_toast.dart';
+import 'common/platform_input.dart';
 
 /// 文件夹编辑结果：名称 + 颜色（颜色为 null 表示用主题默认色）
 class FolderEditResult {
@@ -107,7 +108,7 @@ class _FolderEditDialogState extends State<_FolderEditDialog> {
           const SizedBox(height: 16),
           TextField(
             controller: _ctrl,
-            autofocus: true,
+            autofocus: kAutoFocusOnOpen,
             decoration: const InputDecoration(
               labelText: '文件夹名称',
               hintText: '例如：工作、常用、财务',

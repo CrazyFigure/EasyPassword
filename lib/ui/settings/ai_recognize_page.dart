@@ -21,6 +21,7 @@ import '../center_dialog.dart';
 import '../common/app_menu.dart';
 import '../common/app_toast.dart';
 import '../common/confirm_dialog.dart';
+import '../common/platform_input.dart';
 
 /// 单张图片上限。base64 编码后体积膨胀约 33%，8MB 原图约合 10.7MB 请求体，
 /// 叠加提示词后仍在常见服务的请求上限内。
@@ -789,7 +790,7 @@ class _PromptEditSheetState extends State<_PromptEditSheet> {
           const SizedBox(height: 14),
           TextField(
             controller: _ctrl,
-            autofocus: true,
+            autofocus: kAutoFocusOnOpen,
             minLines: 4,
             maxLines: 8,
             decoration: const InputDecoration(

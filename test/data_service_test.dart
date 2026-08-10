@@ -66,6 +66,46 @@ void main() {
     expect(await data.plainKey(keys.first), 'sk-proj-abc123');
   });
 
+  test('清空密码保存后密码确实被删除', () async {
+    final item = await data.addItem('password', 'GitHub');
+    final acc = await data.addAccount(item.id, 'devuser', 'P@ssw0rd!');
+
+    // 传入空串＝用户在编辑表单里清空了密码，必须真的落库为空
+    await data.updateAccount(acc, newPassword: '');
+
+    final saved = (await data.listAccounts(item.id)).first;
+    expect(saved.passwordEnc, isEmpty);
+    expect(await data.plainPassword(saved), isEmpty);
+  });
+
+  test('不传密码时保留原密码', () async {
+    final item = await data.addItem('password', 'GitHub');
+    final acc = await data.addAccount(item.id, 'devuser', 'P@ssw0rd!');
+
+    // newPassword 为 null＝调用方无意修改密码，密文原样保留
+    await data.updateAccount(acc.copyWith(username: 'newname'));
+
+    final saved = (await data.listAccounts(item.id)).first;
+    expect(saved.username, 'newname');
+    expect(await data.plainPassword(saved), 'P@ssw0rd!');
+  });
+
+  test('清空 API Key 保存后确实被删除', () async {
+    final item = await data.addItem('apikey', 'OpenAI');
+    final acc = await data.addAccount(item.id, 'admin@openai.com', 'pwd');
+    final key = await data.addApiKey(acc.id, 'sk-proj-abc123');
+
+    await data.updateApiKey(key, newKey: '');
+    expect((await data.listApiKeys(acc.id)).first.keyEnc, isEmpty);
+
+    // 不传则保留原值
+    final key2 = await data.addApiKey(acc.id, 'sk-keep-me');
+    await data.updateApiKey(key2.copyWith(note: '改备注'));
+    final saved = (await data.listApiKeys(acc.id)).last;
+    expect(saved.note, '改备注');
+    expect(await data.plainKey(saved), 'sk-keep-me');
+  });
+
   test('拖动排序：条目与账号', () async {
     final a = await data.addItem('password', 'Apple');
     final b = await data.addItem('password', 'AWS');

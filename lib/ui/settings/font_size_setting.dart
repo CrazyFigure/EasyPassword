@@ -11,6 +11,7 @@ import '../../services/font_catalog_service.dart';
 import '../../services/settings_service.dart';
 import '../../state/app_state.dart';
 import '../center_dialog.dart';
+import '../common/platform_input.dart';
 
 class FontSizeSettingPage extends StatefulWidget {
   const FontSizeSettingPage({super.key});
@@ -355,7 +356,7 @@ class _FontPickerDialogState extends State<_FontPickerDialog> {
           const SizedBox(height: 10),
           TextField(
             controller: _searchController,
-            autofocus: true,
+            autofocus: kAutoFocusOnOpen,
             decoration: const InputDecoration(
               hintText: '搜索已安装字体',
               prefixIcon: Icon(Icons.search),

@@ -1,5 +1,6 @@
 import 'package:easypassword/core/theme.dart';
 import 'package:easypassword/ui/common/inline_edit_form.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -121,4 +122,46 @@ void main() {
     expect(find.text('API Key不能为空'), findsOneWidget);
     await _drainToast(tester);
   });
+
+  group('打开表单时的自动聚焦', () {
+    // 移动端聚焦会连带弹出软键盘遮住半屏，必须等用户主动点输入框
+    testWidgets('移动端不自动聚焦首个输入框', (tester) async {
+      expect(await _focusedUnder(tester, TargetPlatform.android), isFalse);
+    });
+
+    // 桌面端没有软键盘，自动聚焦纯属便利，保持原行为
+    testWidgets('桌面端仍自动聚焦首个输入框', (tester) async {
+      expect(await _focusedUnder(tester, TargetPlatform.windows), isTrue);
+    });
+  });
+}
+
+/// 在指定平台下渲染表单，返回首个输入框是否拿到焦点。
+///
+/// Flutter 测试会在用例返回前校验调试变量，因此平台覆盖必须在同一个用例内
+/// 用 finally 复位，不能交给 addTearDown（它跑在校验之后）。
+Future<bool> _focusedUnder(WidgetTester tester, TargetPlatform platform) async {
+  debugDefaultTargetPlatformOverride = platform;
+  try {
+    await _pumpForm(tester);
+    return _firstFieldFocused(tester);
+  } finally {
+    debugDefaultTargetPlatformOverride = null;
+  }
+}
+
+/// 首个输入框（用户名）是否真的拿到了焦点。
+///
+/// 断言实际焦点而不是 autofocus 属性：前者才是"会不会弹键盘"的直接原因。
+bool _firstFieldFocused(WidgetTester tester) {
+  final editable = tester.widget<EditableText>(
+    find
+        .descendant(
+          of: find.ancestor(
+              of: find.text('用户名'), matching: find.byType(TextField)),
+          matching: find.byType(EditableText),
+        )
+        .first,
+  );
+  return editable.focusNode.hasFocus;
 }

@@ -8,6 +8,7 @@ import '../../core/constants.dart';
 import '../../state/app_state.dart';
 import '../common/app_toast.dart';
 import '../common/masked_text_controller.dart';
+import '../common/platform_input.dart';
 import '../common/secret_text_field.dart';
 
 class AppLockRecoverSheet extends StatefulWidget {
@@ -96,7 +97,7 @@ class _AppLockRecoverSheetState extends State<AppLockRecoverSheet> {
             if (!_verified) ...[
               TextField(
                 controller: _answerCtrl,
-                autofocus: true,
+                autofocus: kAutoFocusOnOpen,
                 decoration: InputDecoration(
                   labelText: '安全问题',
                   hintText: widget.question,

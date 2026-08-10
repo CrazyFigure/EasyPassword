@@ -576,14 +576,13 @@ class _AccountCardState extends State<_AccountCard> {
   /// 就地编辑保存
   Future<void> _saveEdit(Map<String, String> values) async {
     final state = context.read<AppState>();
-    final newPwd = values['password'] ?? '';
     await state.data.updateAccount(
       widget.account.copyWith(
         username: values['username'] ?? widget.account.username,
         note: values['note'] ?? widget.account.note,
       ),
-      // 已带出原值，清空视为不改动（避免误设为空密码）
-      newPassword: newPwd.isEmpty ? null : newPwd,
+      // 表单已带出原密码，用户清空即表示要删除该密码，按原样提交
+      newPassword: values['password'] ?? '',
     );
     if (!mounted) return;
     setState(() => _editing = false);

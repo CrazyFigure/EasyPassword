@@ -399,13 +399,19 @@ class DataService {
     return acc;
   }
 
-  /// 更新账号（密码为空表示不修改）
+  /// 更新账号。
+  ///
+  /// [newPassword] 为 null 表示保留原密码；传入空串表示用户主动清空密码，
+  /// 此时必须真的写入空值——把空串折叠成"不修改"会让清空操作静默失效。
   Future<void> updateAccount(Account acc, {String? newPassword}) async {
     final db = await DatabaseService.db;
     var updated = acc;
-    if (newPassword != null && newPassword.isNotEmpty) {
-      updated =
-          updated.copyWith(passwordEnc: await crypto.encrypt(newPassword));
+    if (newPassword != null) {
+      // 空串不进加密：密文空值直接落库，解密侧对空串本就返回空串
+      updated = updated.copyWith(
+        passwordEnc:
+            newPassword.isEmpty ? '' : await crypto.encrypt(newPassword),
+      );
     }
     await db.update(
       'accounts',
@@ -492,12 +498,17 @@ class DataService {
     return k;
   }
 
-  /// 更新 API Key（key 为空表示不修改）
+  /// 更新 API Key。
+  ///
+  /// [newKey] 为 null 表示保留原 key；传入空串表示用户主动清空，语义同
+  /// [updateAccount] 的 newPassword。
   Future<void> updateApiKey(ApiKey k, {String? newKey}) async {
     final db = await DatabaseService.db;
     var updated = k;
-    if (newKey != null && newKey.isNotEmpty) {
-      updated = updated.copyWith(keyEnc: await crypto.encrypt(newKey));
+    if (newKey != null) {
+      updated = updated.copyWith(
+        keyEnc: newKey.isEmpty ? '' : await crypto.encrypt(newKey),
+      );
     }
     await db.update(
       'api_keys',
