@@ -8,6 +8,7 @@ import '../../core/constants.dart';
 import '../../state/app_state.dart';
 import '../common/app_toast.dart';
 import '../common/masked_text_controller.dart';
+import '../common/platform_input.dart';
 import '../common/secret_text_field.dart';
 
 class AppLockSetupPage extends StatefulWidget {
@@ -75,7 +76,7 @@ class _AppLockSetupPageState extends State<AppLockSetupPage> {
           content: SecretTextField(
             controller: ctrl,
             copyLabel: '当前应用锁密码',
-            autofocus: true,
+            autofocus: kAutoFocusOnOpen,
             decoration: const InputDecoration(labelText: '当前应用锁密码'),
           ),
           actions: [
@@ -222,7 +223,7 @@ class _AppLockSetupPageState extends State<AppLockSetupPage> {
         title: const Text('安全问题验证'),
         content: TextField(
           controller: ctrl,
-          autofocus: true,
+          autofocus: kAutoFocusOnOpen,
           decoration: InputDecoration(labelText: question),
         ),
         actions: [

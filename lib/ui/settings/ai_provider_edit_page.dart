@@ -19,6 +19,7 @@ import '../common/app_menu.dart';
 import '../common/app_toast.dart';
 import '../common/confirm_dialog.dart';
 import '../common/masked_text_controller.dart';
+import '../common/platform_input.dart';
 import '../common/secret_text_field.dart';
 
 class AiProviderEditPage extends StatefulWidget {
@@ -499,7 +500,7 @@ class _ModelEditSheetState extends State<_ModelEditSheet> {
           const SizedBox(height: 12),
           TextField(
             controller: _idCtrl,
-            autofocus: true,
+            autofocus: kAutoFocusOnOpen,
             decoration: const InputDecoration(
               labelText: '模型 ID',
               hintText: '请求里实际使用的模型标识',

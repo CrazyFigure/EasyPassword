@@ -1,7 +1,6 @@
 /// 内联编辑组件：在卡片原处展开输入框，替代弹窗式编辑
 library;
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -9,6 +8,7 @@ import '../../core/constants.dart';
 import '../../state/app_state.dart';
 import 'app_toast.dart';
 import 'masked_text_controller.dart';
+import 'platform_input.dart';
 
 /// 内联编辑用的单个字段定义
 class InlineField {
@@ -165,7 +165,10 @@ class _InlineEditFormState extends State<InlineEditForm> {
       enableIMEPersonalizedLearning: !f.obscure,
       autocorrect: !f.obscure,
       maxLines: f.obscure ? 1 : f.maxLines,
-      autofocus: f == widget.fields.first,
+      // 移动端不抢焦点：自动聚焦会立刻顶起软键盘，遮住半屏表单，
+      // 用户还没看清有哪些字段就得先把键盘收起来。桌面端没有这个代价，
+      // 保留首个字段自动聚焦以便直接键入。
+      autofocus: kAutoFocusOnOpen && f == widget.fields.first,
       style: const TextStyle(fontSize: 14),
       decoration: InputDecoration(
         labelText: f.label,
@@ -195,10 +198,7 @@ class _InlineEditFormState extends State<InlineEditForm> {
   @override
   Widget build(BuildContext context) {
     // 偏好虽然跨设备同步，但只在移动平台改变输入类型，桌面输入行为保持不变。
-    final mobilePlatform = !kIsWeb &&
-        (defaultTargetPlatform == TargetPlatform.android ||
-            defaultTargetPlatform == TargetPlatform.iOS);
-    final useSecureKeyboard = !mobilePlatform ||
+    final useSecureKeyboard = !isMobileInputPlatform ||
         (context.watch<AppState?>()?.secureKeyboardEnabled ?? true);
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
