@@ -171,17 +171,58 @@ void main() {
           obscurable: true,
           onToggle: () {},
           onCopy: () async => 'x',
-          menu: RowActionMenu(
-            size: 16,
-            actions: [
-              RowAction(label: '编辑', icon: Icons.edit, onSelected: () {}),
-            ],
-          ),
         ),
       ],
       width: 360,
     );
 
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('字段行不为卡片级菜单预留第三个操作列', (tester) async {
+    // 回归移动端用户名被截断的问题：字段行右侧此前固定排三个插槽，
+    // 而第三列（卡片级「更多」菜单）在所有调用点都是空的，白占一个插槽宽度。
+    await _pumpRows(
+      tester,
+      [
+        DetailFieldRow(
+          label: '用户名',
+          value: '17877783200',
+          onCopy: () async => 'x',
+        ),
+      ],
+      width: 360,
+    );
+
+    // 有值行只应出现「复制」一个插槽；空插槽仅用于对齐，不应多出第三个
+    expect(find.byType(ActionSlot), findsNWidgets(2));
+  });
+
+  testWidgets('窄屏下 11 位手机号能完整显示', (tester) async {
+    // 截图里用户名被截成「215731833…」。以 393 逻辑宽（常见手机）为准，
+    // 扣掉页面与卡片留白后模拟字段行的实际可用宽度。
+    const phone = '17877783200';
+    const pagePadding = 16.0 * 2;
+    const cardPadding = 14.0 * 2;
+    await _pumpRows(
+      tester,
+      [
+        DetailFieldRow(
+          label: '用户名',
+          value: phone,
+          onCopy: () async => phone,
+        ),
+      ],
+      width: 393 - pagePadding - cardPadding,
+    );
+
+    // 文本没被省略号截断：渲染宽度足以容纳完整内容
+    final textWidget = tester.widget<Text>(find.text(phone));
+    final painter = TextPainter(
+      text: TextSpan(text: phone, style: textWidget.style),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    expect(tester.getSize(find.text(phone)).width,
+        greaterThanOrEqualTo(painter.width));
   });
 }

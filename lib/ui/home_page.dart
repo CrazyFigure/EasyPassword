@@ -21,10 +21,15 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
+  // 两个列表页的 Key：新增条目后要反向调用列表把新行滚进视野
+  final _passwordListKey = GlobalKey<ItemListViewState>();
+  final _apikeyListKey = GlobalKey<ItemListViewState>();
+
   // 页面缓存（避免切 Tab 重复构建）
-  final _pages = <String, Widget>{
-    'password': const ItemListView(type: ItemType.password),
-    'apikey': const ItemListView(type: ItemType.apikey),
+  late final _pages = <String, Widget>{
+    'password':
+        ItemListView(key: _passwordListKey, type: ItemType.password),
+    'apikey': ItemListView(key: _apikeyListKey, type: ItemType.apikey),
     'search': const SearchPage(),
     // standalone: false —— 外层已有 Scaffold，避免双层 AppBar
     'ai': const AiRecognizePage(standalone: false),
@@ -74,13 +79,18 @@ class _HomePageState extends State<HomePage> {
     );
     if (result != null && context.mounted) {
       final state = context.read<AppState>();
-      await state.data.addItem(
+      final item = await state.data.addItem(
         type,
         result['name'] as String,
         url: result['url'] as String? ?? '',
         siteNote: result['note'] as String? ?? '',
       );
       await state.refresh();
+      // 按名称排序时新条目会插进列表中间，自定义排序时落在末尾，
+      // 两种情况都滚过去，用户存完即可看到它在哪儿
+      final listKey =
+          type == ItemType.apikey ? _apikeyListKey : _passwordListKey;
+      listKey.currentState?.revealItem(item.id);
     }
   }
 }

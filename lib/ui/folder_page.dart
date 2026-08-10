@@ -13,6 +13,8 @@ import '../state/app_state.dart';
 import 'common/app_menu.dart';
 import 'common/confirm_dialog.dart';
 import 'common/drag_handle.dart';
+import 'common/reveal_scroll.dart';
+import 'common/row_trailing.dart';
 import 'common/site_color.dart';
 import 'detail/apikey_detail_page.dart';
 import 'detail/password_detail_page.dart';
@@ -38,6 +40,10 @@ class _FolderPageState extends State<FolderPage> {
   bool _loading = true;
   bool _batchMode = false;
   final Set<String> _selected = {};
+  // 列表滚动控制器：新增条目后据此把新行滚进视野
+  final _scrollCtrl = ScrollController();
+  // 待定位的条目 id，等列表用新数据重新布局后再消费
+  String? _pendingRevealId;
 
   bool get _isApi => widget.type == ItemType.apikey;
 
@@ -46,6 +52,30 @@ class _FolderPageState extends State<FolderPage> {
     super.initState();
     _folder = widget.folder;
     _load();
+  }
+
+  @override
+  void dispose() {
+    _scrollCtrl.dispose();
+    super.dispose();
+  }
+
+  /// 消费待定位请求：在本帧渲染完成后按新数据算位置并滚动。
+  /// [items] 必须是实际展示顺序（已按当前排序规则派生），否则会定位到错行。
+  void _consumePendingReveal(List<PasswordItem> items) {
+    final id = _pendingRevealId;
+    if (id == null) return;
+    final index = items.indexWhere((e) => e.id == id);
+    _pendingRevealId = null;
+    if (index < 0) return;
+    afterNextFrame(() {
+      if (!mounted) return;
+      revealIndex(
+        controller: _scrollCtrl,
+        index: index,
+        itemCount: items.length,
+      );
+    });
   }
 
   /// 加载本文件夹内的条目。这里恒按 sort_order 取出，展示顺序在 build 里
@@ -68,6 +98,8 @@ class _FolderPageState extends State<FolderPage> {
     // 名称模式与根列表共用 compareNames，两级列表的顺序规则完全一致
     final items =
         customSort ? _items : sortByName(_items, (item) => item.name);
+    // 新数据已就位，可以安排本轮的滚动定位
+    _consumePendingReveal(items);
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -193,7 +225,8 @@ class _FolderPageState extends State<FolderPage> {
     // 否则用普通 ListView（避免 onReorderItem 断言）
     if (customSort) {
       return ReorderableListView.builder(
-        padding: const EdgeInsets.fromLTRB(16, 4, 16, 80),
+        scrollController: _scrollCtrl,
+        padding: kListPadding,
         itemCount: children.length,
         buildDefaultDragHandles: false,
         proxyDecorator: roundedDragProxy,
@@ -202,7 +235,8 @@ class _FolderPageState extends State<FolderPage> {
       );
     }
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 80),
+      controller: _scrollCtrl,
+      padding: kListPadding,
       children: children,
     );
   }
@@ -235,6 +269,8 @@ class _FolderPageState extends State<FolderPage> {
                   _selected.add(item.id);
                 }),
         leading: _SiteAvatar(item: item),
+        // 与主列表同一套右侧留白
+        contentPadding: kRowContentPadding,
         title: Text(
           item.name,
           style: const TextStyle(
@@ -255,42 +291,32 @@ class _FolderPageState extends State<FolderPage> {
                 selected ? Icons.check_circle : Icons.circle_outlined,
                 color: selected ? AppColors.primary : AppColors.textFaint,
               )
-            : Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // 条目操作：与主列表同一套「⋮」下拉菜单
-                  Builder(
-                    builder: (btnContext) => IconButton(
-                      icon: const Icon(Icons.more_vert,
-                          size: 18, color: AppColors.textFaint),
-                      tooltip: '条目操作',
-                      onPressed: () async {
-                        final choice = await showAppMenu<String>(
-                          anchorContext: btnContext,
-                          width: 200,
-                          items: const [
-                            AppMenuItem(
-                              value: 'move',
-                              label: '移动到文件夹',
-                              icon: Icons.drive_file_move_outline,
-                              // 文件夹内页额外支持移出到上一级
-                              subtitle: '可选其他文件夹或移出',
-                            ),
-                            AppMenuItem(
-                              value: 'delete',
-                              label: '删除条目',
-                              icon: Icons.delete_outline,
-                              isDangerous: true,
-                            ),
-                          ],
-                        );
-                        if (choice == 'move') await _moveSingleItem(item);
-                        if (choice == 'delete') await _deleteSingleItem(item);
-                      },
-                    ),
-                  ),
-                  const Icon(Icons.chevron_right, color: AppColors.textFaint),
-                ],
+            // 条目操作：与主列表同一套「⋮」下拉菜单
+            : RowTrailing(
+                menuTooltip: '条目操作',
+                onMenu: (btnContext) async {
+                  final choice = await showAppMenu<String>(
+                    anchorContext: btnContext,
+                    width: 200,
+                    items: const [
+                      AppMenuItem(
+                        value: 'move',
+                        label: '移动到文件夹',
+                        icon: Icons.drive_file_move_outline,
+                        // 文件夹内页额外支持移出到上一级
+                        subtitle: '可选其他文件夹或移出',
+                      ),
+                      AppMenuItem(
+                        value: 'delete',
+                        label: '删除条目',
+                        icon: Icons.delete_outline,
+                        isDangerous: true,
+                      ),
+                    ],
+                  );
+                  if (choice == 'move') await _moveSingleItem(item);
+                  if (choice == 'delete') await _deleteSingleItem(item);
+                },
               ),
       ),
     );
@@ -383,7 +409,7 @@ class _FolderPageState extends State<FolderPage> {
     );
     if (result == null || !mounted) return;
     final state = context.read<AppState>();
-    await state.data.addItem(
+    final item = await state.data.addItem(
       widget.type,
       result['name'] as String,
       url: result['url'] as String? ?? '',
@@ -391,6 +417,8 @@ class _FolderPageState extends State<FolderPage> {
       // 关键：新增的条目直接归属当前文件夹
       folderId: _folder.id,
     );
+    // 先置位再加载：_load 的 setState 会触发 build，正好在那里消费定位请求
+    _pendingRevealId = item.id;
     await _load();
     await state.refresh();
   }
