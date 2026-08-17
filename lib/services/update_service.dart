@@ -154,14 +154,15 @@ class UpdateService {
   /// 使 Windows/Android 的挑包逻辑在任意宿主上都能验证。
   final UpdateTargetPlatform targetPlatform;
 
-  /// [currentVersion] 默认取 CI 注入的安装包版本；
+  /// [currentVersion] 默认取 Flutter 构建产物的真实包版本；
   /// [fetcher]、[locationFetcher] 与 [targetPlatform] 仅用于隔离测试。
   UpdateService({
-    this.currentVersion = AppInfo.currentVersion,
+    String? currentVersion,
     UpdateFetcher? fetcher,
     UpdateLocationFetcher? locationFetcher,
     UpdateTargetPlatform? targetPlatform,
-  })  : _fetcher = fetcher,
+  })  : currentVersion = currentVersion ?? AppInfo.currentVersion,
+        _fetcher = fetcher,
         _locationFetcher = locationFetcher,
         targetPlatform = targetPlatform ?? UpdateTargetPlatform.current;
 

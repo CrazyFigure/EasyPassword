@@ -71,7 +71,6 @@ jobs:
         run: >-
           flutter build apk --release --target-platform android-arm64
           --build-name "$VERSION" --build-number "$GITHUB_RUN_NUMBER"
-          --dart-define="APP_VERSION=$VERSION"
 
       - name: Verify APK signature
         # 硬校验产物证书指纹，杜绝静默回退到 debug 签名导致用户无法覆盖安装。
@@ -140,7 +139,6 @@ jobs:
         run: >-
           flutter build windows --release --build-name "$env:VERSION"
           --build-number "$env:GITHUB_RUN_NUMBER"
-          --dart-define="APP_VERSION=$env:VERSION"
 
       - name: Install NSIS
         run: choco install nsis -y
