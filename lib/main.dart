@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 
+import 'core/constants.dart';
 import 'core/theme.dart';
 import 'state/app_state.dart';
 import 'ui/home_page.dart';
@@ -35,12 +36,19 @@ class _EasyPasswordAppState extends State<EasyPasswordApp> {
   @override
   void initState() {
     super.initState();
-    _initialization = widget.appState.init();
+    _initialization = _initializeApplication();
+  }
+
+  /// 首帧展示后再串行初始化版本元数据与业务状态，既保证 Windows 窗口及时可见，
+  /// 也确保设置页和更新服务首次使用版本号时已经取得真实构建版本。
+  Future<void> _initializeApplication() async {
+    await AppInfo.initialize();
+    await widget.appState.init();
   }
 
   /// 初始化失败后复用同一个状态容器重试，避免重新创建服务导致数据库连接泄漏。
   void _retryInitialization() {
-    setState(() => _initialization = widget.appState.init());
+    setState(() => _initialization = _initializeApplication());
   }
 
   @override

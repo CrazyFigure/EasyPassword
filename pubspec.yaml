@@ -1,10 +1,11 @@
 name: easypassword
 description: "EasyPassword - 保存与查看密码的跨平台应用（Android + Windows）"
 publish_to: "none"
-version: 0.2.0+1
+version: 0.2.9+1
 
 environment:
-  sdk: ">=3.4.0 <4.0.0"
+  sdk: ">=3.10.0 <4.0.0"
+  flutter: ">=3.38.1"
 
 dependencies:
   flutter:
@@ -17,6 +18,8 @@ dependencies:
   sqflite_common_ffi: ^2.3.3
   path: ^1.9.0
   path_provider: ^2.1.4
+  # 统一读取 Flutter 构建产物的版本元数据：本地取 pubspec，发布包取 CI 的 --build-name。
+  package_info_plus: ^10.2.1
   cryptography: ^2.7.0
   http: ^1.2.2
   url_launcher: ^6.3.0

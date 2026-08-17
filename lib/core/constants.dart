@@ -2,6 +2,8 @@
 /// 对齐 Ardot 设计稿（浅粉主题 #F48FB1）
 library;
 
+import 'package:package_info_plus/package_info_plus.dart';
+
 import 'package:flutter/material.dart';
 
 /// ---- 设计令牌 ----
@@ -92,14 +94,28 @@ class WebDavDefaults {
   static const String remotePath = '/EasyPassword';
 }
 
-/// ---- 应用信息与更新检查（对齐 GitHub Releases 版本号）----
+/// ---- 应用信息与更新检查（对齐 Flutter 构建版本与 GitHub Releases）----
 class AppInfo {
-  /// 当前版本由 CI 从发布 tag 注入，避免安装包名与应用内版本各自维护后失配。
-  /// 本地开发未传 APP_VERSION 时回退到 pubspec.yaml 的当前语义版本。
-  static const String currentVersion = String.fromEnvironment(
-    'APP_VERSION',
-    defaultValue: '0.2.0',
-  );
+  AppInfo._();
+
+  // 应用启动阶段写入的真实包版本。初始化完成前保留空值，禁止再用易过期的硬编码版本兜底。
+  static String _currentVersion = '';
+
+  /// 当前 Flutter 构建产物的语义版本。必须先调用 [initialize]，再创建依赖版本号的服务或页面。
+  static String get currentVersion => _currentVersion;
+
+  /// 从平台包元数据初始化版本号：本地开发读取 pubspec.yaml，正式发布读取 CI
+  /// 通过 --build-name 写入的 Git 标签版本，保证界面、EXE/APK 与安装包版本一致。
+  static Future<void> initialize() async {
+    if (_currentVersion.isNotEmpty) return;
+    final packageInfo = await PackageInfo.fromPlatform();
+    final version =
+        packageInfo.version.trim().replaceFirst(RegExp(r'^[vV]'), '');
+    if (!RegExp(r'^\d+\.\d+\.\d+$').hasMatch(version)) {
+      throw StateError('应用版本号格式无效：${packageInfo.version}');
+    }
+    _currentVersion = version;
+  }
 
   /// GitHub 仓库主页
   static const String repoUrl = 'https://github.com/CrazyFigure/EasyPassword';
