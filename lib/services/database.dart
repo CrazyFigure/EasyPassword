@@ -9,6 +9,8 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import '../core/app_environment.dart';
+
 class DatabaseService {
   static Database? _db;
   // v2：新增 folders 表与 password_items.folder_id（文件夹分组）
@@ -73,8 +75,76 @@ class DatabaseService {
   }
 
   static Future<String> _defaultDbPath() async {
+    if (AppEnvironment.usesDevelopmentStorage) {
+      final developmentDir = await _developmentDataDirectory();
+      await developmentDir.create(recursive: true);
+      return p.join(
+        developmentDir.path,
+        AppEnvironment.developmentDatabaseFileName,
+      );
+    }
     final dir = await getApplicationSupportDirectory();
     return p.join(dir.path, 'easypassword.db');
+  }
+
+  /// 测试专用：按正式逻辑解析默认路径，但不打开或修改数据库文件。
+  @visibleForTesting
+  static Future<String> resolveDefaultPathForTest() async {
+    if (AppEnvironment.usesDevelopmentStorage) {
+      return p.join(
+        (await _developmentDataDirectory()).path,
+        AppEnvironment.developmentDatabaseFileName,
+      );
+    }
+    final dir = await getApplicationSupportDirectory();
+    return p.join(dir.path, 'easypassword.db');
+  }
+
+  /// 解析开发数据库目录。显式配置优先；否则从当前目录和调试 EXE 位置向上
+  /// 查找项目根目录，使 flutter run 与直接启动 build 内 EXE 都能命中 .dev-data。
+  /// 极端情况下无法定位源码目录时，回退到系统应用目录中的独立 dev 子目录，
+  /// 仍保证不会读写安装版的正式数据库。
+  static Future<Directory> _developmentDataDirectory() async {
+    final configured =
+        AppEnvironment.configuredDevelopmentDataDirectory.trim();
+    if (configured.isNotEmpty) {
+      return Directory(
+        p.isAbsolute(configured)
+            ? p.normalize(configured)
+            : p.normalize(p.join(Directory.current.path, configured)),
+      );
+    }
+
+    final projectRoot = await _findProjectRoot();
+    if (projectRoot != null) {
+      return Directory(p.join(projectRoot.path, '.dev-data'));
+    }
+
+    final supportDir = await getApplicationSupportDirectory();
+    return Directory(p.join(supportDir.path, 'dev'));
+  }
+
+  /// 从常见开发启动位置逐级寻找同时包含 pubspec.yaml 与 .git 的项目根目录。
+  static Future<Directory?> _findProjectRoot() async {
+    final starts = <Directory>{
+      Directory.current.absolute,
+      File(Platform.resolvedExecutable).parent.absolute,
+    };
+    for (final start in starts) {
+      var current = start;
+      // Windows 构建产物通常位于项目根目录下 5～6 层，最多检查 10 层兼容其他平台。
+      for (var depth = 0; depth < 10; depth++) {
+        final hasPubspec =
+            await File(p.join(current.path, 'pubspec.yaml')).exists();
+        final hasGitDirectory =
+            await Directory(p.join(current.path, '.git')).exists();
+        if (hasPubspec && hasGitDirectory) return current;
+        final parent = current.parent;
+        if (parent.path == current.path) break;
+        current = parent;
+      }
+    }
+    return null;
   }
 
   /// 测试重置：关闭已打开的库并清空路径覆盖
