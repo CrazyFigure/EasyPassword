@@ -45,14 +45,14 @@
     <text class="axis-label" x="54" y="78" text-anchor="end">1</text>
     <text class="axis-label" x="68" y="410" text-anchor="middle">2026-08-07</text>
     <text class="axis-label" x="254" y="410" text-anchor="middle">2026-08-09</text>
-    <text class="axis-label" x="440" y="410" text-anchor="middle">2026-08-11</text>
-    <text class="axis-label" x="626" y="410" text-anchor="middle">2026-08-13</text>
-    <text class="axis-label" x="812" y="410" text-anchor="middle">2026-08-16</text>
+    <text class="axis-label" x="440" y="410" text-anchor="middle">2026-08-12</text>
+    <text class="axis-label" x="626" y="410" text-anchor="middle">2026-08-14</text>
+    <text class="axis-label" x="812" y="410" text-anchor="middle">2026-08-17</text>
   </g>
-  <path class="area" d="M 68 368 H 147.58 V 368 H 231.28 V 368 H 315.11 V 368 H 397.92 V 368 H 482.22 V 368 H 565.64 V 368 H 648.71 V 368 H 728.29 V 368 H 812 V 368 L 812 368 L 68 368 Z" />
-  <path class="line" d="M 68 368 H 147.58 V 368 H 231.28 V 368 H 315.11 V 368 H 397.92 V 368 H 482.22 V 368 H 565.64 V 368 H 648.71 V 368 H 728.29 V 368 H 812 V 368" />
+  <path class="area" d="M 68 368 H 139.58 V 368 H 214.87 V 368 H 290.27 V 368 H 364.75 V 368 H 440.57 V 368 H 515.6 V 368 H 590.32 V 368 H 661.89 V 368 H 737.19 V 368 H 812 V 368 L 812 368 L 68 368 Z" />
+  <path class="line" d="M 68 368 H 139.58 V 368 H 214.87 V 368 H 290.27 V 368 H 364.75 V 368 H 440.57 V 368 H 515.6 V 368 H 590.32 V 368 H 661.89 V 368 H 737.19 V 368 H 812 V 368" />
   <circle class="dot" cx="812" cy="368" r="6" />
   <rect class="badge" x="682" y="28" width="130" height="34" rx="17" />
   <text class="badge-text" x="747" y="50" text-anchor="middle">0 stars</text>
-  <text class="status" x="812" y="428" text-anchor="end">Observed snapshots: 2026-08-07 – 2026-08-16</text>
+  <text class="status" x="812" y="428" text-anchor="end">Observed snapshots: 2026-08-07 – 2026-08-17</text>
 </svg>
