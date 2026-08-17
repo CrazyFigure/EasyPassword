@@ -27,8 +27,16 @@ import 'move_to_folder_dialog.dart';
 class FolderPage extends StatefulWidget {
   final String type;
   final Folder folder;
+  // 从搜索结果进入时携带的初始条目：页面先成为详情页的下层路由，
+  // 详情返回后即可留在所属文件夹，并滚到该条目所在位置。
+  final PasswordItem? initialItem;
 
-  const FolderPage({super.key, required this.type, required this.folder});
+  const FolderPage({
+    super.key,
+    required this.type,
+    required this.folder,
+    this.initialItem,
+  });
 
   @override
   State<FolderPage> createState() => _FolderPageState();
@@ -51,7 +59,13 @@ class _FolderPageState extends State<FolderPage> {
   void initState() {
     super.initState();
     _folder = widget.folder;
+    _pendingRevealId = widget.initialItem?.id;
     _load();
+    // 首帧先把文件夹路由放入导航栈，再从该路由打开详情；这样详情页左上角
+    // 返回的目标天然就是文件夹页，而不是搜索页或分区根目录。
+    if (widget.initialItem != null) {
+      afterNextFrame(_openInitialItem);
+    }
   }
 
   @override
@@ -64,7 +78,8 @@ class _FolderPageState extends State<FolderPage> {
   /// [items] 必须是实际展示顺序（已按当前排序规则派生），否则会定位到错行。
   void _consumePendingReveal(List<PasswordItem> items) {
     final id = _pendingRevealId;
-    if (id == null) return;
+    // 首次加载完成前列表为空，此时不能提前消费定位请求。
+    if (id == null || _loading) return;
     final index = items.indexWhere((e) => e.id == id);
     _pendingRevealId = null;
     if (index < 0) return;
@@ -82,8 +97,7 @@ class _FolderPageState extends State<FolderPage> {
   /// 按当前规则派生：用户在本页切换排序方式时无需重新查库即可立即生效。
   Future<void> _load() async {
     final state = context.read<AppState>();
-    final items =
-        await state.data.listItems(widget.type, folderId: _folder.id);
+    final items = await state.data.listItems(widget.type, folderId: _folder.id);
     if (!mounted) return;
     setState(() {
       _items = items;
@@ -96,8 +110,7 @@ class _FolderPageState extends State<FolderPage> {
     final state = context.watch<AppState>();
     final customSort = state.sortModeFor(widget.type) == 'custom';
     // 名称模式与根列表共用 compareNames，两级列表的顺序规则完全一致
-    final items =
-        customSort ? _items : sortByName(_items, (item) => item.name);
+    final items = customSort ? _items : sortByName(_items, (item) => item.name);
     // 新数据已就位，可以安排本轮的滚动定位
     _consumePendingReveal(items);
 
@@ -374,6 +387,16 @@ class _FolderPageState extends State<FolderPage> {
     );
     // 详情页可能改名或删除条目，返回后重新加载本文件夹
     await _load();
+  }
+
+  /// 打开搜索结果携带的初始条目。
+  ///
+  /// 此入口必须复用 [_openDetail]，确保详情内发生改名或删除后，返回文件夹
+  /// 会重新查库；单独 Navigator.push 会让下层列表保留旧数据。
+  Future<void> _openInitialItem() async {
+    final item = widget.initialItem;
+    if (!mounted || item == null) return;
+    await _openDetail(item);
   }
 
   /// 拖动重排。只在自定义排序模式下可触发，此时展示列表与 [_items] 同序，

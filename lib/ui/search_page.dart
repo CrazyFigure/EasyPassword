@@ -11,6 +11,7 @@ import '../services/search_service.dart';
 import '../state/app_state.dart';
 import 'detail/apikey_detail_page.dart';
 import 'detail/password_detail_page.dart';
+import 'folder_page.dart';
 
 class SearchPage extends StatefulWidget {
   const SearchPage({super.key});
@@ -75,8 +76,7 @@ class _SearchPageState extends State<SearchPage> {
             controller: _controller,
             decoration: InputDecoration(
               hintText: '搜索网站/App、备注、用户名、密码、API Key...',
-              prefixIcon:
-                  const Icon(Icons.search, color: AppColors.textWeak),
+              prefixIcon: const Icon(Icons.search, color: AppColors.textWeak),
               suffixIcon: _controller.text.isNotEmpty
                   ? IconButton(
                       icon: const Icon(Icons.clear,
@@ -151,8 +151,7 @@ class _SearchPageState extends State<SearchPage> {
           children: [
             Icon(Icons.search, size: 48, color: AppColors.textFaint),
             SizedBox(height: 8),
-            Text('输入关键词开始搜索',
-                style: TextStyle(color: AppColors.textWeak)),
+            Text('输入关键词开始搜索', style: TextStyle(color: AppColors.textWeak)),
           ],
         ),
       );
@@ -200,13 +199,40 @@ class _SearchPageState extends State<SearchPage> {
                     fontSize: 15,
                     fontWeight: FontWeight.w600,
                     color: AppColors.textMain)),
-            subtitle: Text(
-              '${r.hitField}：${r.subtitle}',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                  fontSize: 12, color: AppColors.textWeak),
+            // 文件夹内结果增加独立目录行，不与命中摘要争抢同一行空间。
+            subtitle: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${r.hitField}：${r.subtitle}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style:
+                      const TextStyle(fontSize: 12, color: AppColors.textWeak),
+                ),
+                if (r.folderName != null) ...[
+                  const SizedBox(height: 2),
+                  Row(
+                    children: [
+                      const Icon(Icons.folder_outlined,
+                          size: 13, color: AppColors.textWeak),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          '目录：${r.folderName}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              fontSize: 12, color: AppColors.textWeak),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
             ),
+            isThreeLine: r.folderName != null,
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -241,7 +267,10 @@ class _SearchPageState extends State<SearchPage> {
     );
   }
 
-  /// 点击结果跳转到对应详情（需求 3.3）
+  /// 点击结果跳转到对应详情（需求 3.3）。
+  ///
+  /// 文件夹内条目先把 [FolderPage] 压入导航栈，并由文件夹页继续打开详情；
+  /// 因而详情返回时能保留正确目录层级，同时由文件夹页负责滚动定位。
   Future<void> _jumpTo(SearchResult r) async {
     final state = context.read<AppState>();
     // 直接按 id 查库，避免根目录缓存列表查不到文件夹内的条目
@@ -251,15 +280,41 @@ class _SearchPageState extends State<SearchPage> {
       showAppToast(context, '条目不存在或已删除', kind: ToastKind.error);
       return;
     }
-    // 跳转对应功能区 tab
+    // 以点击时的最新条目归属为准，避免搜索完成后条目被移动导致返回旧目录。
+    final folderId = item.folderId;
+    final folder =
+        folderId == null ? null : await state.data.getFolder(folderId);
+    if (!mounted) return;
+
+    // 查询完导航上下文后再切换 Tab；setTab 会让搜索页退出组件树，之后不能
+    // 再等待数据库查询或读取本页 context。
     state.setTab(r.itemType);
-    Navigator.push(
+    if (folderId != null) {
+      // 已删除、类型不匹配的文件夹属于异常或并发变更，安全回退为直接详情。
+      if (folder != null && !folder.deleted && folder.type == r.itemType) {
+        await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => FolderPage(
+              type: r.itemType,
+              folder: folder,
+              initialItem: item,
+            ),
+          ),
+        );
+        await state.refresh();
+        return;
+      }
+    }
+
+    await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => r.itemType == ItemType.apikey
             ? ApiKeyDetailPage(item: item)
             : PasswordDetailPage(item: item),
       ),
-    ).then((_) => state.refresh());
+    );
+    await state.refresh();
   }
 }

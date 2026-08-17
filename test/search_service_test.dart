@@ -28,6 +28,7 @@ void main() {
     await db.delete('api_keys');
     await db.delete('accounts');
     await db.delete('password_items');
+    await db.delete('folders');
   });
 
   test('搜索名称与备注', () async {
@@ -43,7 +44,8 @@ void main() {
 
   test('搜索用户名、密码（解密后匹配）、API Key', () async {
     final item = await data.addItem('apikey', 'OpenAI');
-    final acc = await data.addAccount(item.id, 'admin@openai.com', 'OpenSecret');
+    final acc =
+        await data.addAccount(item.id, 'admin@openai.com', 'OpenSecret');
     await data.addApiKey(acc.id, 'sk-proj-AIKEY123', note: '生产环境');
 
     // 用户名
@@ -72,5 +74,17 @@ void main() {
 
     final inApikey = await search.search('openai', scope: 'apikey');
     expect(inApikey, isNotEmpty);
+  });
+
+  test('文件夹内的搜索结果携带所属目录名，根目录结果不展示目录', () async {
+    final folder = await data.addFolder('password', '工作账号');
+    await data.addItem('password', '公司邮箱', folderId: folder.id);
+    await data.addItem('password', '私人邮箱');
+
+    final inFolder = await search.search('公司邮箱');
+    final atRoot = await search.search('私人邮箱');
+
+    expect(inFolder.single.folderName, '工作账号');
+    expect(atRoot.single.folderName, isNull);
   });
 }
