@@ -4,6 +4,7 @@ library;
 
 import '../models/account.dart';
 import '../models/api_key.dart';
+import '../models/folder.dart';
 import '../models/password_item.dart';
 import 'crypto_service.dart';
 import 'data_service.dart';
@@ -20,6 +21,7 @@ class SearchResult {
   final String subtitle; // 命中摘要
   final String hitField; // 命中的字段名（展示用）
   final String itemType; // password / apikey
+  final String? folderName; // 所属目录名；null 表示条目位于分区根目录
 
   const SearchResult({
     required this.targetType,
@@ -30,6 +32,7 @@ class SearchResult {
     required this.subtitle,
     required this.hitField,
     required this.itemType,
+    this.folderName,
   });
 }
 
@@ -40,7 +43,8 @@ class SearchService {
 
   /// 全局搜索。
   /// [scope] = 'all' | 'password' | 'apikey'；返回按类型排序的结果。
-  Future<List<SearchResult>> search(String query, {String scope = 'all'}) async {
+  Future<List<SearchResult>> search(String query,
+      {String scope = 'all'}) async {
     if (query.trim().isEmpty) return [];
     final q = query.trim().toLowerCase();
     final results = <SearchResult>[];
@@ -54,9 +58,19 @@ class SearchService {
     }
 
     for (final type in types) {
+      // 同一分区只查一次文件夹并建立索引，给所有命中结果补充可读目录名，
+      // 避免搜索到文件夹内多条数据时逐条查库造成 N+1 查询。
+      final folderNames = <String, String>{
+        for (final Folder folder in await data.listFolders(type))
+          folder.id: folder.name,
+      };
       // 搜索跨文件夹：文件夹内的条目也必须能被搜到
       final items = await data.listItems(type, allFolders: true);
       for (final item in items) {
+        // folder_id 可能因异常数据找不到有效文件夹，此时按根目录结果展示，
+        // 不能把内部 id 暴露给用户。
+        final folderName =
+            item.folderId == null ? null : folderNames[item.folderId!];
         // 1) 条目名 / 网站级备注
         if (item.name.toLowerCase().contains(q)) {
           results.add(SearchResult(
@@ -66,6 +80,7 @@ class SearchService {
             subtitle: item.siteNote.isEmpty ? item.url : item.siteNote,
             hitField: '名称',
             itemType: type,
+            folderName: folderName,
           ));
         } else if (item.siteNote.toLowerCase().contains(q)) {
           results.add(SearchResult(
@@ -75,6 +90,7 @@ class SearchService {
             subtitle: item.siteNote,
             hitField: '网站级备注',
             itemType: type,
+            folderName: folderName,
           ));
         }
 
@@ -82,13 +98,13 @@ class SearchService {
         final accounts = await data.listAccounts(item.id);
         for (final acc in accounts) {
           if (acc.username.toLowerCase().contains(q)) {
-            results.add(_accResult(item, acc, '用户名'));
+            results.add(_accResult(item, acc, '用户名', folderName));
           } else if (acc.note.toLowerCase().contains(q)) {
-            results.add(_accResult(item, acc, '用户级备注'));
+            results.add(_accResult(item, acc, '用户级备注', folderName));
           } else {
             final pwd = await crypto.decrypt(acc.passwordEnc);
             if (pwd.toLowerCase().contains(q)) {
-              results.add(_accResult(item, acc, '密码'));
+              results.add(_accResult(item, acc, '密码', folderName));
             }
           }
 
@@ -97,11 +113,11 @@ class SearchService {
             final keys = await data.listApiKeys(acc.id);
             for (final k in keys) {
               if (k.note.toLowerCase().contains(q)) {
-                results.add(_keyResult(item, acc, k, 'API Key 备注'));
+                results.add(_keyResult(item, acc, k, 'API Key 备注', folderName));
               } else {
                 final plain = await crypto.decrypt(k.keyEnc);
                 if (plain.toLowerCase().contains(q)) {
-                  results.add(_keyResult(item, acc, k, 'API Key'));
+                  results.add(_keyResult(item, acc, k, 'API Key', folderName));
                 }
               }
             }
@@ -112,7 +128,13 @@ class SearchService {
     return results;
   }
 
-  SearchResult _accResult(PasswordItem item, Account acc, String field) {
+  /// 构造账号级命中结果，并把条目的目录上下文透传给搜索页。
+  SearchResult _accResult(
+    PasswordItem item,
+    Account acc,
+    String field,
+    String? folderName,
+  ) {
     return SearchResult(
       targetType: SearchTargetType.account,
       itemId: item.id,
@@ -121,10 +143,18 @@ class SearchService {
       subtitle: acc.username,
       hitField: field,
       itemType: item.type,
+      folderName: folderName,
     );
   }
 
-  SearchResult _keyResult(PasswordItem item, Account acc, ApiKey k, String field) {
+  /// 构造 API Key 级命中结果，并把条目的目录上下文透传给搜索页。
+  SearchResult _keyResult(
+    PasswordItem item,
+    Account acc,
+    ApiKey k,
+    String field,
+    String? folderName,
+  ) {
     return SearchResult(
       targetType: SearchTargetType.apiKey,
       itemId: item.id,
@@ -134,6 +164,7 @@ class SearchService {
       subtitle: acc.username,
       hitField: field,
       itemType: item.type,
+      folderName: folderName,
     );
   }
 }
