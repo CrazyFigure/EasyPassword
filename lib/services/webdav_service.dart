@@ -7,6 +7,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:sqflite/sqflite.dart';
 
+import '../core/app_environment.dart';
 import '../core/constants.dart';
 import 'crypto_service.dart';
 import 'data_service.dart';
@@ -21,7 +22,6 @@ class WebDavService {
 
   WebDavService(this.crypto, this.data);
 
-  static const String _snapshotName = 'easypassword-snapshot.json.enc';
   static const int _snapshotVersion = 3;
 
   // ================= 快照导出与加密 =================
@@ -395,7 +395,11 @@ class WebDavService {
       password,
       remotePath: remotePath,
     );
-    final uri = _resolveFileUri(baseUrl, remotePath, _snapshotName);
+    final uri = _resolveFileUri(
+      baseUrl,
+      remotePath,
+      AppEnvironment.webDavSnapshotFileName,
+    );
     final response =
         await http.get(uri, headers: _authHeaders(username, password));
     if (response.statusCode == 404) {
@@ -437,7 +441,11 @@ class WebDavService {
       if (onlyIfMissing) 'If-None-Match': '*',
     };
     final response = await http.put(
-      _resolveFileUri(baseUrl, remotePath, _snapshotName),
+      _resolveFileUri(
+        baseUrl,
+        remotePath,
+        AppEnvironment.webDavSnapshotFileName,
+      ),
       headers: headers,
       body: encrypted,
     );

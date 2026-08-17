@@ -21,6 +21,8 @@ windows/runner/flutter_ephemeral/
 *.jks
 *.keystore
 key.properties
+# 开发环境数据库包含密码、API Key、WebDAV 凭据与本机密钥，只允许保留在当前工作区。
+.dev-data/
 
 # 系统
 .DS_Store

@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../core/app_environment.dart';
 import '../../core/constants.dart';
 import '../../state/app_state.dart';
 import '../center_dialog.dart';
@@ -163,7 +164,10 @@ class SettingsPage extends StatelessWidget {
           _ActionTile(
             icon: Icons.system_update_alt,
             title: '版本与更新',
-            subtitle: 'EasyPassword v${AppInfo.currentVersion} · 点击检测更新',
+            // 开发版明确标记独立数据环境，避免测试时误以为正在操作安装版数据。
+            subtitle: AppEnvironment.usesDevelopmentStorage
+                ? 'EasyPassword v${AppInfo.currentVersion} · 开发环境 · 点击检测更新'
+                : 'EasyPassword v${AppInfo.currentVersion} · 点击检测更新',
             onTap: () => showUpdateCheckDialog(context),
           ),
           const _Divider(),
