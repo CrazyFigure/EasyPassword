@@ -105,10 +105,13 @@ class _UpdateCheckDialogState extends State<_UpdateCheckDialog> {
 
       if (!mounted) return;
 
-      // 下载完成，拉起安装器
-      await _service.launchInstaller(path);
+      // 下载完成后交给平台安装器；Windows 辅助进程会校验目标版本并负责重新拉起应用。
+      await _service.launchInstaller(
+        path,
+        expectedVersion: result.latestVersion,
+      );
 
-      // 成功拉起后关闭弹窗，安装器会接管后续流程
+      // Android 交接成功后关闭弹窗；Windows 正常更新时旧进程已由安装器关闭。
       if (mounted) Navigator.pop(context);
     } on UpdateDownloadException catch (e) {
       if (!mounted) return;

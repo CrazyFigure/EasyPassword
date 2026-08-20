@@ -529,15 +529,22 @@ class UpdateService {
     }
   }
 
-  /// 启动已下载的安装包。Windows 直接以管理员权限拉起 NSIS 安装器；
-  /// Android 通过平台通道交给系统包安装器（需用户授权“安装未知应用”）。
+  /// 启动已下载的安装包。Windows 使用当前普通用户下的临时辅助进程等待
+  /// NSIS 安装完成，校验 [expectedVersion] 后重新拉起应用；Android 通过
+  /// 平台通道交给系统包安装器（需用户授权“安装未知应用”）。
   /// 抛出 [UpdateInstallException] 表示无法进入安装流程。
-  Future<void> launchInstaller(String installerPath) async {
+  Future<void> launchInstaller(
+    String installerPath, {
+    String? expectedVersion,
+  }) async {
     if (!File(installerPath).existsSync()) {
       throw const UpdateInstallException('missing_file');
     }
     if (Platform.isWindows) {
-      return _launchWindowsInstaller(installerPath);
+      return _launchWindowsInstaller(
+        installerPath,
+        expectedVersion: expectedVersion,
+      );
     }
     if (Platform.isAndroid) {
       return _launchAndroidInstaller(installerPath);
@@ -545,27 +552,80 @@ class UpdateService {
     throw const UpdateInstallException('unsupported_platform');
   }
 
-  /// Windows：NSIS 安装器声明了 requestExecutionLevel admin，
-  /// 必须经 ShellExecute 的 runas 动词触发 UAC，直接 Process.start 会被拒。
-  /// 安装器自身会先关闭正在运行的旧进程，所以这里不需要自杀。
-  Future<void> _launchWindowsInstaller(String installerPath) async {
-    // 单引号包裹 -FilePath 并转义内部单引号，避免路径含空格或引号时被拆解
-    final quoted = installerPath.replaceAll("'", "''");
-    final result = await Process.run(
-      'powershell.exe',
-      [
-        '-NoProfile',
-        '-NonInteractive',
-        '-Command',
-        "Start-Process -FilePath '$quoted' -Verb RunAs",
-      ],
-    );
-    // 用户在 UAC 弹窗点“否”时 PowerShell 返回非 0，需要如实反馈而不是假装已启动
+  /// Windows：由当前普通用户启动隐藏 PowerShell 辅助进程，再通过 runas 拉起
+  /// 管理员安装器。辅助进程等待安装完成，并从卸载注册表读取用户实际选择的
+  /// 安装目录；目标版本校验通过后，它以原用户权限启动新 EXE。
+  ///
+  /// 安装器会强制结束旧应用，但不会结束这个短生命周期辅助进程。这样既不需要
+  /// 常驻守护或开机项，也避免从管理员安装器直接启动密码管理器导致权限继承。
+  Future<void> _launchWindowsInstaller(
+    String installerPath, {
+    String? expectedVersion,
+  }) async {
+    // PowerShell 单引号字符串需把内部单引号写成两个，避免路径被截断或注入命令。
+    final quotedInstallerPath = installerPath.replaceAll("'", "''");
+    final quotedExpectedVersion = expectedVersion?.replaceAll("'", "''");
+    // 更新成功后才启动目标版本。Release 版本不带构建号，而 Windows 文件版本形如
+    // 0.2.8+123，因此校验时只比较加号前的语义版本部分。
+    final versionGuard = quotedExpectedVersion == null
+        ? ''
+        : r'''
+$installedVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo($appPath).ProductVersion
+$semanticVersion = ($installedVersion -split '\+')[0]
+if ($semanticVersion -ne '__EXPECTED_VERSION__') {
+  throw "安装后的版本不符合预期：$semanticVersion"
+}
+'''
+              .replaceFirst('__EXPECTED_VERSION__', quotedExpectedVersion);
+    final script =
+        '''
+\$ErrorActionPreference = 'Stop'
+try {
+  \$installer = Start-Process -FilePath '$quotedInstallerPath' -Verb RunAs -PassThru -Wait
+  if (\$installer.ExitCode -ne 0) {
+    exit \$installer.ExitCode
+  }
+
+  # 安装目录允许用户修改，必须读取安装器最终写入的注册表值，不能写死 Program Files。
+  # 当前 NSIS 使用 32 位注册表视图，但同时兼容未来切换到 64 位视图后的卸载键。
+  \$installInfo = \$null
+  \$uninstallKeys = @(
+    'Registry::HKEY_LOCAL_MACHINE\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\EasyPassword',
+    'Registry::HKEY_LOCAL_MACHINE\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\EasyPassword'
+  )
+  foreach (\$uninstallKey in \$uninstallKeys) {
+    if (Test-Path -LiteralPath \$uninstallKey) {
+      \$installInfo = Get-ItemProperty -LiteralPath \$uninstallKey
+      break
+    }
+  }
+  if (\$null -eq \$installInfo) {
+    throw '安装完成后未找到 EasyPassword 安装信息'
+  }
+  \$installDir = [string]\$installInfo.InstallLocation
+  \$appPath = Join-Path -Path \$installDir -ChildPath 'easypassword.exe'
+  if (-not (Test-Path -LiteralPath \$appPath -PathType Leaf)) {
+    throw '安装完成后未找到 EasyPassword 可执行文件'
+  }
+$versionGuard
+  Start-Process -FilePath \$appPath -WorkingDirectory \$installDir
+} catch {
+  [Console]::Error.WriteLine(\$_.Exception.Message)
+  exit 1
+}
+''';
+    final result = await Process.run('powershell.exe', [
+      '-NoProfile',
+      '-NonInteractive',
+      '-WindowStyle',
+      'Hidden',
+      '-Command',
+      script,
+    ]);
+    // UAC 被拒、安装失败或版本校验失败时 PowerShell 返回非 0；旧应用若仍存活，
+    // 调用方会继续显示错误。安装成功时旧应用已退出，辅助进程负责拉起新版本。
     if (result.exitCode != 0) {
-      throw UpdateInstallException(
-        'launch_failed',
-        '${result.stderr}'.trim(),
-      );
+      throw UpdateInstallException('launch_failed', '${result.stderr}'.trim());
     }
   }
 
