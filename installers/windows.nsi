@@ -63,7 +63,9 @@ Section "MainSection" SEC01
     "EasyPassword 正在运行，安装前需要关闭。是否由安装程序立即关闭？" \
     IDYES close_running_app IDNO cancel_install
   close_running_app:
-    nsExec::ExecToStack '"$SYSDIR\taskkill.exe" /F /T /IM easypassword.exe'
+    ; 只结束应用主进程，不使用 /T：应用内更新时由普通用户权限的临时辅助进程
+    ; 等待本安装器结束并拉起新版本，误杀进程树会导致更新完成后无法自动恢复。
+    nsExec::ExecToStack '"$SYSDIR\taskkill.exe" /F /IM easypassword.exe'
     Pop $1
     Pop $2
     Sleep 500
