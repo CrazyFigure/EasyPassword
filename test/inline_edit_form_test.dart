@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:easypassword/core/theme.dart';
 import 'package:easypassword/ui/common/inline_edit_form.dart';
 import 'package:flutter/foundation.dart';
@@ -76,6 +78,74 @@ void main() {
     expect(saved(), isNotNull);
     expect(saved()!['username'], '');
     expect(saved()!['password'], 's3cret');
+  });
+
+  testWidgets('粘贴的密码保留首尾空格，不被表单静默修改', (tester) async {
+    final saved = await _pumpForm(tester);
+    await _fill(tester, '密码', '  s3cret value  ');
+    await _tapSave(tester);
+
+    // 密码是逐字匹配的凭据，首尾空格也可能是合法内容，不能统一 trim。
+    expect(saved()!['password'], '  s3cret value  ');
+  });
+
+  testWidgets('异步旧密码晚到时不覆盖用户已清空的输入框', (tester) async {
+    final oldPassword = Completer<String>();
+    final saved = await _pumpForm(
+      tester,
+      fields: [
+        InlineField(
+          key: 'password',
+          label: '密码',
+          obscure: true,
+          resolveInitial: () => oldPassword.future,
+        ),
+      ],
+      requireAnyOf: const {},
+    );
+
+    // 先输入再主动清空；即使此时文本为空，也代表明确的用户操作。
+    await _fill(tester, '密码', '临时新密码');
+    await _fill(tester, '密码', '');
+    oldPassword.complete('数据库中的旧密码');
+    await tester.pump();
+    await _tapSave(tester);
+
+    expect(saved()!['password'], isEmpty);
+  });
+
+  testWidgets('保存进行中拦截重复提交并显示进度', (tester) async {
+    final saveGate = Completer<void>();
+    var saveCount = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.build(),
+        home: Scaffold(
+          body: InlineEditForm(
+            title: '编辑账号',
+            fields: _accountFields,
+            requireAnyOf: const {'username', 'password'},
+            onCancel: () {},
+            onSave: (_) async {
+              saveCount++;
+              await saveGate.future;
+            },
+          ),
+        ),
+      ),
+    );
+    await _fill(tester, '密码', 'new-password');
+
+    await tester.tap(find.text('保存'));
+    await tester.pump();
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    // 保存按钮已经禁用，重复点击不会再发起第二次数据库写入。
+    await tester.tap(find.byType(FilledButton));
+    await tester.pump();
+    expect(saveCount, 1);
+
+    saveGate.complete();
+    await tester.pump();
   });
 
   testWidgets('两者都为空时拦截并提示', (tester) async {

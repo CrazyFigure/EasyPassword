@@ -389,7 +389,7 @@ class _AccountCard extends StatefulWidget {
   final int index; // 列表下标，供拖动把手使用
   final Account account;
   final bool showAll;
-  final VoidCallback onChanged;
+  final Future<void> Function() onChanged;
 
   const _AccountCard({
     super.key,
@@ -427,6 +427,13 @@ class _AccountCardState extends State<_AccountCard> {
   @override
   void didUpdateWidget(covariant _AccountCard oldWidget) {
     super.didUpdateWidget(oldWidget);
+    // 父级重新加载后若密文已经变化，旧明文缓存必须立即失效。
+    // 否则下次只修改用户名或备注时，旧密码会被表单再次写回数据库。
+    if (widget.account.passwordEnc != oldWidget.account.passwordEnc) {
+      _plain = null;
+      _plainLength = null;
+      _ensurePlain();
+    }
     // 父级"显示全部"开关变化时，整体跟随（之后单条按钮仍可独立切换）
     if (widget.showAll != oldWidget.showAll) {
       _revealed = widget.showAll;
@@ -437,9 +444,13 @@ class _AccountCardState extends State<_AccountCard> {
   /// 按需解密明文密码，解密完成后刷新
   Future<void> _ensurePlain() async {
     if (_plain != null) return;
+    // 捕获本次解密对应的账号版本，避免旧请求晚到后污染新账号的缓存。
+    final account = widget.account;
     final state = context.read<AppState>();
-    final plain = await state.data.plainPassword(widget.account);
-    if (mounted) {
+    final plain = await state.data.plainPassword(account);
+    if (mounted &&
+        widget.account.id == account.id &&
+        widget.account.passwordEnc == account.passwordEnc) {
       setState(() {
         _plain = plain;
         _plainLength = plain.length;
@@ -467,11 +478,8 @@ class _AccountCardState extends State<_AccountCard> {
             key: 'password',
             label: '密码',
             obscure: true,
-            // 编辑时带出原密码（按需解密），可用小眼睛查看
-            resolveInitial: () async {
-              final state = context.read<AppState>();
-              return _plain ?? await state.data.plainPassword(widget.account);
-            },
+            // 进入编辑态前已完成解密，同步初值不会再和粘贴、清空或保存竞争。
+            initial: _plain ?? '',
           ),
           InlineField(
             key: 'note',
@@ -514,7 +522,7 @@ class _AccountCardState extends State<_AccountCard> {
                     RowAction(
                       label: '编辑',
                       icon: Icons.edit_outlined,
-                      onSelected: () => setState(() => _editing = true),
+                      onSelected: _startEditing,
                     ),
                     RowAction(
                       label: '删除账号',
@@ -573,25 +581,32 @@ class _AccountCardState extends State<_AccountCard> {
     if (mounted) setState(() => _revealed = !_revealed);
   }
 
+  /// 先读取当前密码再展开表单，彻底消除异步回填覆盖用户粘贴内容的竞态。
+  Future<void> _startEditing() async {
+    await _ensurePlain();
+    if (mounted) setState(() => _editing = true);
+  }
+
   /// 就地编辑保存
   Future<void> _saveEdit(Map<String, String> values) async {
     final state = context.read<AppState>();
+    // 保存成功后先用用户提交值更新本卡片，不能再从保存前的旧模型解密回填。
+    final newPassword = values['password'] ?? '';
     await state.data.updateAccount(
       widget.account.copyWith(
         username: values['username'] ?? widget.account.username,
         note: values['note'] ?? widget.account.note,
       ),
       // 表单已带出原密码，用户清空即表示要删除该密码，按原样提交
-      newPassword: values['password'] ?? '',
+      newPassword: newPassword,
     );
     if (!mounted) return;
-    setState(() => _editing = false);
-    // 密码可能已变更，清除明文缓存后必须重新解密：
-    // 遮挡态也要拿到新位数才能铺出等长星号
-    _plain = null;
-    _plainLength = null;
-    await _ensurePlain();
-    widget.onChanged();
+    setState(() {
+      _editing = false;
+      _plain = newPassword;
+      _plainLength = newPassword.length;
+    });
+    await widget.onChanged();
   }
 
   Future<void> _delete() async {
@@ -605,7 +620,7 @@ class _AccountCardState extends State<_AccountCard> {
     if (ok == true && mounted) {
       final state = context.read<AppState>();
       await state.data.deleteAccount(widget.account.id);
-      widget.onChanged();
+      await widget.onChanged();
     }
   }
 }

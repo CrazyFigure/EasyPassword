@@ -88,9 +88,9 @@ void main() {
     // 同时单独禁止 IME 个性化学习，避免第三方输入法保存密码。
     expect(field.enableSuggestions, isTrue);
     expect(field.enableIMEPersonalizedLearning, isFalse);
-    // 内容仍然不可见，且长按选择被关闭，避免复制到明文。
+    // 内容仍然不可见；保留选择能力用于“全选并粘贴”，导出动作由安全菜单过滤。
     expect(controller.maskEnabled, isTrue);
-    expect(field.enableInteractiveSelection, isFalse);
+    expect(field.enableInteractiveSelection, isTrue);
 
     // 点开小眼睛后恢复明文渲染。
     await tester.tap(find.byTooltip('显示测试密码'));
@@ -151,11 +151,45 @@ void main() {
       expect(field.keyboardType, TextInputType.text);
       expect(field.enableSuggestions, isTrue);
       expect(field.enableIMEPersonalizedLearning, isFalse);
-      expect(field.enableInteractiveSelection, isFalse);
+      expect(field.enableInteractiveSelection, isTrue);
     } finally {
       // Flutter 测试会在用例返回前校验调试变量，必须同步复位平台覆盖。
       debugDefaultTargetPlatformOverride = null;
     }
+  });
+
+  testWidgets('自绘遮挡状态的长按菜单保留粘贴且不提供复制', (tester) async {
+    final controller = MaskedTextEditingController(text: 'old-secret');
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SecretTextField(
+            controller: controller,
+            copyLabel: '测试密码',
+            useSecureKeyboard: false,
+            decoration: const InputDecoration(labelText: '密码'),
+          ),
+        ),
+      ),
+    );
+
+    final editableFinder = find.byType(EditableText);
+    await tester.tap(editableFinder);
+    controller.selection = TextSelection(
+      baseOffset: 0,
+      extentOffset: controller.text.length,
+    );
+    final editableState = tester.state<EditableTextState>(editableFinder);
+    // 测试绑定不实现 Clipboard.hasStrings，直接标记剪贴板可粘贴以验证菜单与动作。
+    editableState.clipboardStatus.value = ClipboardStatus.pasteable;
+    editableState.showToolbar();
+    // 输入框持有焦点时光标会持续闪烁，固定泵一帧即可渲染菜单，不能等待“完全静止”。
+    await tester.pump();
+
+    expect(find.text('Paste'), findsOneWidget);
+    expect(find.text('Copy'), findsNothing);
+    expect(find.text('Cut'), findsNothing);
   });
 
   test('自绘遮挡按字符数铺满星号，与 obscureText 观感一致', () {

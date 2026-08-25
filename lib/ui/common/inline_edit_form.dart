@@ -1,6 +1,8 @@
 /// 内联编辑组件：在卡片原处展开输入框，替代弹窗式编辑
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -9,6 +11,7 @@ import '../../state/app_state.dart';
 import 'app_toast.dart';
 import 'masked_text_controller.dart';
 import 'platform_input.dart';
+import 'secret_input_actions.dart';
 
 /// 内联编辑用的单个字段定义
 class InlineField {
@@ -51,7 +54,7 @@ class InlineEditForm extends StatefulWidget {
 
   /// 至少需填其中一个的字段 key；为空集合表示不做此校验
   final Set<String> requireAnyOf;
-  final ValueChanged<Map<String, String>> onSave;
+  final FutureOr<void> Function(Map<String, String>) onSave;
   final VoidCallback onCancel;
 
   const InlineEditForm({
@@ -73,6 +76,10 @@ class _InlineEditFormState extends State<InlineEditForm> {
   late final Map<String, MaskedTextEditingController> _ctrls;
   // 敏感字段的显示状态：key -> 是否明文可见
   late final Map<String, bool> _visible;
+  // 记录用户真正操作过的字段，避免异步初值晚到后覆盖键入或粘贴的内容。
+  final Set<String> _changedKeys = {};
+  // 数据库写入期间锁住二次提交，避免连续点击产生先发后至的覆盖竞态。
+  bool _saving = false;
 
   @override
   void initState() {
@@ -94,8 +101,9 @@ class _InlineEditFormState extends State<InlineEditForm> {
       if (resolve == null) continue;
       final value = await resolve();
       if (!mounted) return;
-      // 用户可能已抢先输入，此时不覆盖
-      if (_ctrls[f.key]!.text.isEmpty) {
+      // 不能用“当前是否为空”判断用户是否编辑：用户可能主动清空旧密码。
+      // 只要发生过输入、删除或粘贴，异步初值就不得再覆盖用户的决定。
+      if (!_changedKeys.contains(f.key)) {
         _ctrls[f.key]!.text = value;
       }
     }
@@ -109,11 +117,12 @@ class _InlineEditFormState extends State<InlineEditForm> {
     super.dispose();
   }
 
-  void _submit() {
+  Future<void> _submit() async {
+    if (_saving) return;
     // 必填校验：命中即弹袖珍悬浮提示
     for (final key in widget.requiredKeys) {
-      if ((_ctrls[key]?.text.trim() ?? '').isEmpty) {
-        final field = widget.fields.firstWhere((f) => f.key == key);
+      final field = widget.fields.firstWhere((f) => f.key == key);
+      if (_submittedValue(field).isEmpty) {
         showAppToast(context, '${field.label}不能为空', kind: ToastKind.error);
         return;
       }
@@ -121,7 +130,8 @@ class _InlineEditFormState extends State<InlineEditForm> {
     // 「至少填一个」校验：允许单个字段为空，但不允许整组皆空
     if (widget.requireAnyOf.isNotEmpty) {
       final anyFilled = widget.requireAnyOf
-          .any((key) => (_ctrls[key]?.text.trim() ?? '').isNotEmpty);
+          .map((key) => widget.fields.firstWhere((f) => f.key == key))
+          .any((field) => _submittedValue(field).isNotEmpty);
       if (!anyFilled) {
         final labels = widget.requireAnyOf
             .map((key) => widget.fields.firstWhere((f) => f.key == key).label)
@@ -130,9 +140,26 @@ class _InlineEditFormState extends State<InlineEditForm> {
         return;
       }
     }
-    widget.onSave({
-      for (final e in _ctrls.entries) e.key: e.value.text.trim(),
-    });
+    final values = {
+      for (final field in widget.fields)
+        field.key: _submittedValue(field),
+    };
+    setState(() => _saving = true);
+    try {
+      await widget.onSave(values);
+    } finally {
+      // 保存成功时父级通常会关闭本表单；失败或父级保留表单时恢复操作能力。
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  /// 普通文本去掉无意义的首尾空白；密码等敏感值必须逐字保留。
+  ///
+  /// 密码可能合法地以空格开头或结尾，粘贴后统一 `trim()` 会悄悄改变凭据，
+  /// 最终表现为“明明保存了却无法使用”。敏感字段因此只判断真正的空字符串。
+  String _submittedValue(InlineField field) {
+    final value = _ctrls[field.key]?.text ?? '';
+    return field.obscure ? value : value.trim();
   }
 
   /// 渲染单个字段。敏感字段默认遮挡，同时禁用联想和自动纠错避免敏感值泄漏。
@@ -151,15 +178,19 @@ class _InlineEditFormState extends State<InlineEditForm> {
     final requestNormalTextInput = f.obscure && !useSecureKeyboard;
     controller.maskEnabled = maskInFlutter;
 
-    return TextField(
+    final textField = TextField(
       controller: controller,
       // 自绘遮挡时必须为 false，否则引擎仍会声明密码输入类型。
       obscureText: obscure && !maskInFlutter,
       // 与自绘遮挡及详情页保持同一字符，两条遮挡路径观感一致。
       obscuringCharacter: MaskedTextEditingController.maskCharacter,
       keyboardType: TextInputType.text,
-      // 对齐 obscureText 默认关闭选择的行为，避免长按选中后复制到明文。
-      enableInteractiveSelection: maskInFlutter ? false : null,
+      // 自绘遮挡也允许选择，才能通过长按菜单“全选并粘贴”；菜单本身会过滤
+      // 复制、剪切、分享等明文导出动作。
+      enableInteractiveSelection: true,
+      contextMenuBuilder: f.obscure
+          ? buildSecretInputContextMenu
+          : buildDefaultTextInputContextMenu,
       enableSuggestions: !f.obscure || requestNormalTextInput,
       // 敏感字段禁止输入法个性化学习，普通字段沿用系统默认行为。
       enableIMEPersonalizedLearning: !f.obscure,
@@ -169,6 +200,7 @@ class _InlineEditFormState extends State<InlineEditForm> {
       // 用户还没看清有哪些字段就得先把键盘收起来。桌面端没有这个代价，
       // 保留首个字段自动聚焦以便直接键入。
       autofocus: kAutoFocusOnOpen && f == widget.fields.first,
+      readOnly: _saving,
       style: const TextStyle(fontSize: 14),
       decoration: InputDecoration(
         labelText: f.label,
@@ -192,7 +224,12 @@ class _InlineEditFormState extends State<InlineEditForm> {
       textInputAction:
           f.maxLines > 1 ? TextInputAction.newline : TextInputAction.done,
       onSubmitted: f.maxLines > 1 ? null : (_) => _submit(),
+      // 输入、删除和系统粘贴都会经过此回调，用于保护用户内容不被异步初值覆盖。
+      onChanged: (_) => _changedKeys.add(f.key),
     );
+    return f.obscure
+        ? protectSecretInputClipboard(child: textField)
+        : textField;
   }
 
   @override
@@ -228,7 +265,7 @@ class _InlineEditFormState extends State<InlineEditForm> {
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
               TextButton(
-                onPressed: widget.onCancel,
+                onPressed: _saving ? null : widget.onCancel,
                 child: const Text('取消'),
               ),
               const SizedBox(width: 8),
@@ -237,8 +274,14 @@ class _InlineEditFormState extends State<InlineEditForm> {
                   minimumSize: const Size(64, 36),
                   visualDensity: VisualDensity.compact,
                 ),
-                onPressed: _submit,
-                child: const Text('保存'),
+                onPressed: _saving ? null : _submit,
+                child: _saving
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('保存'),
               ),
             ],
           ),
