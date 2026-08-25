@@ -290,7 +290,7 @@ class _UserCard extends StatefulWidget {
   final int index; // 列表下标，供拖动把手使用
   final Account account;
   final bool showAll;
-  final VoidCallback onChanged;
+  final Future<void> Function() onChanged;
 
   const _UserCard({
     super.key,
@@ -326,6 +326,12 @@ class _UserCardState extends State<_UserCard> {
   @override
   void didUpdateWidget(covariant _UserCard oldWidget) {
     super.didUpdateWidget(oldWidget);
+    // 平台密码密文变化时废弃旧明文，避免后续编辑把旧密码重新写回。
+    if (widget.account.passwordEnc != oldWidget.account.passwordEnc) {
+      _plainPwd = null;
+      _plainPwdLength = null;
+      _ensurePlainPwd();
+    }
     // 父级"显示全部"变化时，平台密码整体跟随（之后单条按钮仍可独立切换）
     if (widget.showAll != oldWidget.showAll) {
       _pwdRevealed = widget.showAll;
@@ -336,9 +342,13 @@ class _UserCardState extends State<_UserCard> {
   /// 按需解密平台密码，解密完成后刷新
   Future<void> _ensurePlainPwd() async {
     if (_plainPwd != null) return;
+    // 只接收当前账号版本的解密结果，忽略刷新前发起的旧请求。
+    final account = widget.account;
     final state = context.read<AppState>();
-    final plain = await state.data.plainPassword(widget.account);
-    if (mounted) {
+    final plain = await state.data.plainPassword(account);
+    if (mounted &&
+        widget.account.id == account.id &&
+        widget.account.passwordEnc == account.passwordEnc) {
       setState(() {
         _plainPwd = plain;
         _plainPwdLength = plain.length;
@@ -384,12 +394,8 @@ class _UserCardState extends State<_UserCard> {
             key: 'password',
             label: '平台密码',
             obscure: true,
-            // 编辑时带出原密码（按需解密），可用小眼睛查看
-            resolveInitial: () async {
-              final state = context.read<AppState>();
-              return _plainPwd ??
-                  await state.data.plainPassword(widget.account);
-            },
+            // 解密在打开表单前完成，避免异步初值覆盖用户的粘贴或清空操作。
+            initial: _plainPwd ?? '',
           ),
           InlineField(
             key: 'note',
@@ -443,7 +449,7 @@ class _UserCardState extends State<_UserCard> {
                   RowAction(
                     label: '编辑',
                     icon: Icons.edit_outlined,
-                    onSelected: () => setState(() => _editing = true),
+                    onSelected: _startEditing,
                   ),
                   RowAction(
                     label: '删除用户',
@@ -566,6 +572,12 @@ class _UserCardState extends State<_UserCard> {
     if (mounted) setState(() => _pwdRevealed = !_pwdRevealed);
   }
 
+  /// 先准备好平台密码再进入编辑态，表单展示后不再发生异步回填。
+  Future<void> _startEditing() async {
+    await _ensurePlainPwd();
+    if (mounted) setState(() => _editing = true);
+  }
+
   /// 展开就地新增 API Key 的表单，并把它滚进视野
   void _startAddingKey() {
     setState(() => _addingKey = true);
@@ -596,22 +608,23 @@ class _UserCardState extends State<_UserCard> {
   /// 就地编辑用户信息保存
   Future<void> _saveUserEdit(Map<String, String> values) async {
     final state = context.read<AppState>();
+    // 用刚保存的明文更新显示缓存，禁止从保存前的旧账号对象重新取值。
+    final newPassword = values['password'] ?? '';
     await state.data.updateAccount(
       widget.account.copyWith(
         username: values['username'] ?? widget.account.username,
         note: values['note'] ?? widget.account.note,
       ),
       // 表单已带出原密码，用户清空即表示要删除该密码，按原样提交
-      newPassword: values['password'] ?? '',
+      newPassword: newPassword,
     );
     if (!mounted) return;
-    setState(() => _editing = false);
-    // 密码可能已变更，清除明文缓存后必须重新解密：
-    // 遮挡态也要拿到新位数才能铺出等长星号
-    _plainPwd = null;
-    _plainPwdLength = null;
-    await _ensurePlainPwd();
-    widget.onChanged();
+    setState(() {
+      _editing = false;
+      _plainPwd = newPassword;
+      _plainPwdLength = newPassword.length;
+    });
+    await widget.onChanged();
   }
 
   Future<void> _deleteUser() async {
@@ -625,7 +638,7 @@ class _UserCardState extends State<_UserCard> {
     if (ok == true && mounted) {
       final state = context.read<AppState>();
       await state.data.deleteAccount(widget.account.id);
-      widget.onChanged();
+      await widget.onChanged();
     }
   }
 }
@@ -635,7 +648,7 @@ class _ApiKeyTile extends StatefulWidget {
   final int index; // 列表下标，供拖动把手使用
   final ApiKey apiKey;
   final bool showAll;
-  final VoidCallback onChanged;
+  final Future<void> Function() onChanged;
 
   const _ApiKeyTile({
     super.key,
@@ -673,6 +686,12 @@ class _ApiKeyTileState extends State<_ApiKeyTile> {
   @override
   void didUpdateWidget(covariant _ApiKeyTile oldWidget) {
     super.didUpdateWidget(oldWidget);
+    // Key 密文变化后必须丢弃旧明文，否则下次编辑备注时会回写旧 Key。
+    if (widget.apiKey.keyEnc != oldWidget.apiKey.keyEnc) {
+      _plain = null;
+      _plainLength = null;
+      _ensurePlain();
+    }
     // 父级"显示全部"变化时整体跟随（之后单条按钮仍可独立切换）
     if (widget.showAll != oldWidget.showAll) {
       _revealed = widget.showAll;
@@ -683,9 +702,13 @@ class _ApiKeyTileState extends State<_ApiKeyTile> {
   /// 按需解密明文 key，解密完成后刷新
   Future<void> _ensurePlain() async {
     if (_plain != null) return;
+    // 记录解密来源，只允许结果写回同一个 Key 版本。
+    final apiKey = widget.apiKey;
     final state = context.read<AppState>();
-    final plain = await state.data.plainKey(widget.apiKey);
-    if (mounted) {
+    final plain = await state.data.plainKey(apiKey);
+    if (mounted &&
+        widget.apiKey.id == apiKey.id &&
+        widget.apiKey.keyEnc == apiKey.keyEnc) {
       setState(() {
         _plain = plain;
         _plainLength = plain.length;
@@ -705,11 +728,8 @@ class _ApiKeyTileState extends State<_ApiKeyTile> {
             key: 'key',
             label: 'API Key',
             obscure: true,
-            // 编辑时带出原 key（按需解密），可用小眼睛查看
-            resolveInitial: () async {
-              final state = context.read<AppState>();
-              return _plain ?? await state.data.plainKey(widget.apiKey);
-            },
+            // 打开编辑态前已完成解密，初值不会再与用户输入异步竞争。
+            initial: _plain ?? '',
           ),
           InlineField(
             key: 'note',
@@ -791,7 +811,7 @@ class _ApiKeyTileState extends State<_ApiKeyTile> {
                   RowAction(
                     label: '编辑',
                     icon: Icons.edit_outlined,
-                    onSelected: () => setState(() => _editing = true),
+                    onSelected: _startEditing,
                   ),
                   RowAction(
                     label: '删除',
@@ -813,24 +833,31 @@ class _ApiKeyTileState extends State<_ApiKeyTile> {
     if (mounted) setState(() => _revealed = !_revealed);
   }
 
+  /// 先读取当前 Key 再显示表单，避免加载完成时覆盖刚粘贴的新值。
+  Future<void> _startEditing() async {
+    await _ensurePlain();
+    if (mounted) setState(() => _editing = true);
+  }
+
   /// 就地编辑保存
   Future<void> _saveEdit(Map<String, String> values) async {
     final state = context.read<AppState>();
+    // 保存后立即采用提交值，不能从仍指向旧密文的 widget 再次解密。
+    final newKey = values['key'] ?? '';
     await state.data.updateApiKey(
       widget.apiKey.copyWith(
         note: values['note'] ?? widget.apiKey.note,
       ),
       // 表单已带出原 key，用户清空即表示要删除它，按原样提交
-      newKey: values['key'] ?? '',
+      newKey: newKey,
     );
     if (!mounted) return;
-    setState(() => _editing = false);
-    // key 可能已变更，清除明文缓存后必须重新解密：
-    // 遮挡态也要拿到新位数才能铺出等长星号
-    _plain = null;
-    _plainLength = null;
-    await _ensurePlain();
-    widget.onChanged();
+    setState(() {
+      _editing = false;
+      _plain = newKey;
+      _plainLength = newKey.length;
+    });
+    await widget.onChanged();
   }
 
   Future<void> _delete() async {
@@ -844,7 +871,7 @@ class _ApiKeyTileState extends State<_ApiKeyTile> {
     if (ok == true && mounted) {
       final state = context.read<AppState>();
       await state.data.deleteApiKey(widget.apiKey.id);
-      widget.onChanged();
+      await widget.onChanged();
     }
   }
 }
