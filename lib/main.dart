@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import 'core/constants.dart';
 import 'core/theme.dart';
 import 'state/app_state.dart';
+import 'ui/common/app_toast.dart';
 import 'ui/home_page.dart';
 import 'ui/lock_page.dart';
 
@@ -76,6 +77,7 @@ class _Root extends StatelessWidget {
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
     return MaterialApp(
+      navigatorKey: rootNavigatorKey,
       title: 'EasyPassword',
       debugShowCheckedModeBanner: false,
       // 应用界面固定使用简体中文；补齐本地化代理后，输入框长按菜单中的
@@ -101,7 +103,9 @@ class _Root extends StatelessWidget {
                 ? media.textScaler
                 : TextScaler.linear(fixedScale),
           ),
-          child: child ?? const SizedBox.shrink(),
+          child: GlobalSyncToastListener(
+            child: child ?? const SizedBox.shrink(),
+          ),
         );
       },
       home: FutureBuilder<void>(

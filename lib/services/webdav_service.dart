@@ -651,12 +651,16 @@ class WebDavService {
   // ================= 三种用户同步模式 =================
 
   /// 本地覆盖远端：明确的强制上传，不拉取也不合并。
-  Future<SyncSummary> overwriteRemote(
+  Future<SyncStats> overwriteRemote(
     String baseUrl,
     String username,
     String password, {
     String remotePath = WebDavDefaults.remotePath,
   }) async {
+    final localSnapshot = await exportAll();
+    final localRows = _extractRows(localSnapshot);
+    final activeCount = _countActiveItems(localRows);
+
     final highWaterMark = await DatabaseService.getSyncJournalHighWaterMark();
     final snapshot = await buildSnapshot(
       baseUrl: baseUrl,
@@ -672,11 +676,14 @@ class WebDavService {
       remotePath: remotePath,
     );
     await DatabaseService.clearSyncJournalThrough(highWaterMark);
-    return const SyncSummary(merged: 0, pushed: true);
+    return SyncStats(
+      mode: WebDavSyncMode.localToRemote,
+      overwriteCount: activeCount,
+    );
   }
 
   /// 远端覆盖本地：明确的强制下载；远端不存在时拒绝清空本地。
-  Future<SyncSummary> overwriteLocal(
+  Future<SyncStats> overwriteLocal(
     String baseUrl,
     String username,
     String password, {
@@ -691,44 +698,64 @@ class WebDavService {
     if (remote.body == null) {
       throw Exception('远端还没有同步快照，不能覆盖本地数据');
     }
-    final merged = await replaceLocalSnapshot(
+    final remoteSnapshot = await _decodeSnapshot(
       remote.body!,
       baseUrl: baseUrl,
       username: username,
       password: password,
       remotePath: remotePath,
     );
+    final remoteRows = _extractRows(remoteSnapshot);
+    final activeCount = _countActiveItems(remoteRows);
+
+    await _applySnapshot(remoteSnapshot, replaceLocal: true);
     final highWaterMark = await DatabaseService.getSyncJournalHighWaterMark();
     await DatabaseService.clearSyncJournalThrough(highWaterMark);
-    return SyncSummary(merged: merged, pushed: false);
+    return SyncStats(
+      mode: WebDavSyncMode.remoteToLocal,
+      overwriteCount: activeCount,
+    );
   }
 
   /// 自动同步：远端与本地逐行合并后推送。遇到 ETag 冲突最多重试三次，
   /// 覆盖正常网络抖动和多台设备几乎同时同步的场景。
-  Future<SyncSummary> syncAll(
+  Future<SyncStats> syncAll(
     String baseUrl,
     String username,
     String password, {
     String remotePath = WebDavDefaults.remotePath,
   }) async {
-    var merged = 0;
     for (var attempt = 0; attempt < 3; attempt++) {
+      // 1. 记录合并前的本地快照数据
+      final localSnapshotBefore = await exportAll();
+      final localRowsBefore = _extractRows(localSnapshotBefore);
+
       final remote = await _pullRemote(
         baseUrl,
         username,
         password,
         remotePath: remotePath,
       );
+
+      Map<String, dynamic>? remoteSnapshot;
+      Map<String, List<Map<String, dynamic>>>? remoteRowsBefore;
+
       if (remote.body != null) {
-        merged += await mergeSnapshot(
+        remoteSnapshot = await _decodeSnapshot(
           remote.body!,
           baseUrl: baseUrl,
           username: username,
           password: password,
           remotePath: remotePath,
         );
+        remoteRowsBefore = _extractRows(remoteSnapshot);
+        await _applySnapshot(remoteSnapshot, replaceLocal: false);
       }
+
       final highWaterMark = await DatabaseService.getSyncJournalHighWaterMark();
+      final mergedSnapshot = await exportAll();
+      final mergedRowsAfter = _extractRows(mergedSnapshot);
+
       final snapshot = await buildSnapshot(
         baseUrl: baseUrl,
         username: username,
@@ -746,7 +773,33 @@ class WebDavService {
           onlyIfMissing: remote.body == null,
         );
         await DatabaseService.clearSyncJournalThrough(highWaterMark);
-        return SyncSummary(merged: merged, pushed: true);
+
+        // 2. 计算本地拉取差量（localRowsBefore -> mergedRowsAfter）
+        final localDiff =
+            _computeSnapshotDiff(localRowsBefore, mergedRowsAfter);
+
+        // 3. 计算远端推送差量（remoteRowsBefore -> mergedRowsAfter）
+        final _DiffResult remoteDiff;
+        if (remoteRowsBefore == null) {
+          remoteDiff = _DiffResult(
+            added: _countActiveItems(mergedRowsAfter),
+            updated: 0,
+            deleted: 0,
+          );
+        } else {
+          remoteDiff =
+              _computeSnapshotDiff(remoteRowsBefore, mergedRowsAfter);
+        }
+
+        return SyncStats(
+          mode: WebDavSyncMode.automatic,
+          localAdded: localDiff.added,
+          localUpdated: localDiff.updated,
+          localDeleted: localDiff.deleted,
+          remoteAdded: remoteDiff.added,
+          remoteUpdated: remoteDiff.updated,
+          remoteDeleted: remoteDiff.deleted,
+        );
       } on _RemoteChangedException {
         if (attempt == 2) {
           throw Exception('远端正在被其他设备更新，请稍后重试');
@@ -755,13 +808,290 @@ class WebDavService {
     }
     throw Exception('自动同步未完成，请稍后重试');
   }
+
+  // ================= 差量对比辅助方法 =================
+
+  /// 计算两个快照版本之间顶层条目与文件夹的增删改差量
+  static _DiffResult _computeSnapshotDiff(
+    Map<String, List<Map<String, dynamic>>> fromRows,
+    Map<String, List<Map<String, dynamic>>> toRows,
+  ) {
+    var added = 0;
+    var updated = 0;
+    var deleted = 0;
+
+    // 1. 对比 folders
+    final fromFolders = {
+      for (final f in fromRows['folders'] ?? <Map<String, dynamic>>[])
+        f['id']?.toString(): f
+    };
+    final toFolders = {
+      for (final f in toRows['folders'] ?? <Map<String, dynamic>>[])
+        f['id']?.toString(): f
+    };
+
+    for (final entry in toFolders.entries) {
+      final id = entry.key;
+      if (id == null || id.isEmpty) continue;
+      final toRow = entry.value;
+      final fromRow = fromFolders[id];
+      final toDeleted = toRow['deleted'] == 1;
+
+      if (fromRow == null) {
+        if (!toDeleted) added++;
+      } else {
+        final fromDeleted = fromRow['deleted'] == 1;
+        if (!fromDeleted && toDeleted) {
+          deleted++;
+        } else if (fromDeleted && !toDeleted) {
+          added++;
+        } else if (!fromDeleted && !toDeleted) {
+          if (toRow['name'] != fromRow['name'] ||
+              toRow['type'] != fromRow['type'] ||
+              toRow['sort_order'] != fromRow['sort_order']) {
+            updated++;
+          }
+        }
+      }
+    }
+
+    for (final entry in fromFolders.entries) {
+      final id = entry.key;
+      if (id != null &&
+          !toFolders.containsKey(id) &&
+          entry.value['deleted'] != 1) {
+        deleted++;
+      }
+    }
+
+    // 2. 对比 password_items 及其子表 accounts / api_keys
+    final fromAccountsByItem = <String, List<Map<String, dynamic>>>{};
+    for (final acc in fromRows['accounts'] ?? <Map<String, dynamic>>[]) {
+      final itemId = acc['item_id']?.toString();
+      if (itemId != null) {
+        (fromAccountsByItem[itemId] ??= []).add(acc);
+      }
+    }
+    final toAccountsByItem = <String, List<Map<String, dynamic>>>{};
+    for (final acc in toRows['accounts'] ?? <Map<String, dynamic>>[]) {
+      final itemId = acc['item_id']?.toString();
+      if (itemId != null) {
+        (toAccountsByItem[itemId] ??= []).add(acc);
+      }
+    }
+
+    final fromApiKeysByItem = <String, List<Map<String, dynamic>>>{};
+    for (final key in fromRows['api_keys'] ?? <Map<String, dynamic>>[]) {
+      final itemId = key['item_id']?.toString();
+      if (itemId != null) {
+        (fromApiKeysByItem[itemId] ??= []).add(key);
+      }
+    }
+    final toApiKeysByItem = <String, List<Map<String, dynamic>>>{};
+    for (final key in toRows['api_keys'] ?? <Map<String, dynamic>>[]) {
+      final itemId = key['item_id']?.toString();
+      if (itemId != null) {
+        (toApiKeysByItem[itemId] ??= []).add(key);
+      }
+    }
+
+    final fromItems = {
+      for (final i in fromRows['password_items'] ?? <Map<String, dynamic>>[])
+        i['id']?.toString(): i
+    };
+    final toItems = {
+      for (final i in toRows['password_items'] ?? <Map<String, dynamic>>[])
+        i['id']?.toString(): i
+    };
+
+    for (final entry in toItems.entries) {
+      final id = entry.key;
+      if (id == null || id.isEmpty) continue;
+      final toRow = entry.value;
+      final fromRow = fromItems[id];
+      final toDeleted = toRow['deleted'] == 1;
+
+      if (fromRow == null) {
+        if (!toDeleted) added++;
+      } else {
+        final fromDeleted = fromRow['deleted'] == 1;
+        if (!fromDeleted && toDeleted) {
+          deleted++;
+        } else if (fromDeleted && !toDeleted) {
+          added++;
+        } else if (!fromDeleted && !toDeleted) {
+          // 比较主表与子表字段
+          final itemChanged = toRow['name'] != fromRow['name'] ||
+              toRow['type'] != fromRow['type'] ||
+              toRow['url'] != fromRow['url'] ||
+              toRow['site_note'] != fromRow['site_note'] ||
+              toRow['folder_id'] != fromRow['folder_id'] ||
+              toRow['sort_order'] != fromRow['sort_order'];
+
+          final accountsChanged = !_areSubRowsEqual(
+            fromAccountsByItem[id] ?? [],
+            toAccountsByItem[id] ?? [],
+            [
+              'username',
+              'password_plain',
+              'password_enc',
+              'note',
+              'deleted',
+              'sort_order'
+            ],
+          );
+
+          final apiKeysChanged = !_areSubRowsEqual(
+            fromApiKeysByItem[id] ?? [],
+            toApiKeysByItem[id] ?? [],
+            [
+              'name',
+              'key_plain',
+              'key_enc',
+              'note',
+              'deleted',
+              'sort_order'
+            ],
+          );
+
+          if (itemChanged || accountsChanged || apiKeysChanged) {
+            updated++;
+          }
+        }
+      }
+    }
+
+    for (final entry in fromItems.entries) {
+      final id = entry.key;
+      if (id != null &&
+          !toItems.containsKey(id) &&
+          entry.value['deleted'] != 1) {
+        deleted++;
+      }
+    }
+
+    return _DiffResult(added: added, updated: updated, deleted: deleted);
+  }
+
+  static bool _areSubRowsEqual(
+    List<Map<String, dynamic>> listA,
+    List<Map<String, dynamic>> listB,
+    List<String> checkFields,
+  ) {
+    final mapA = {for (final r in listA) r['id']?.toString(): r};
+    final mapB = {for (final r in listB) r['id']?.toString(): r};
+    if (mapA.length != mapB.length) return false;
+    for (final entry in mapB.entries) {
+      final id = entry.key;
+      final rowB = entry.value;
+      final rowA = mapA[id];
+      if (rowA == null) return false;
+      for (final field in checkFields) {
+        if (rowA.containsKey(field) || rowB.containsKey(field)) {
+          if (rowA[field]?.toString() != rowB[field]?.toString()) {
+            return false;
+          }
+        }
+      }
+    }
+    return true;
+  }
+
+  static int _countActiveItems(Map<String, List<Map<String, dynamic>>> rows) {
+    final activeFolders =
+        (rows['folders'] ?? []).where((f) => f['deleted'] != 1).length;
+    final activeItems =
+        (rows['password_items'] ?? []).where((i) => i['deleted'] != 1).length;
+    return activeFolders + activeItems;
+  }
 }
 
-class SyncSummary {
-  final int merged;
-  final bool pushed;
-  const SyncSummary({required this.merged, required this.pushed});
+/// 内部差量计算结果
+class _DiffResult {
+  final int added;
+  final int updated;
+  final int deleted;
+
+  const _DiffResult({
+    this.added = 0,
+    this.updated = 0,
+    this.deleted = 0,
+  });
 }
+
+/// WebDAV 同步结果统计模型：记录双向增删改明细与全量覆盖条目数
+class SyncStats {
+  /// 本地拉取变更统计
+  final int localAdded;
+  final int localUpdated;
+  final int localDeleted;
+
+  /// 远端推送变更统计
+  final int remoteAdded;
+  final int remoteUpdated;
+  final int remoteDeleted;
+
+  /// 全量覆盖条目总数（覆盖本地时为拉取数，覆盖远端时为推送数）
+  final int? overwriteCount;
+  final WebDavSyncMode mode;
+
+  const SyncStats({
+    this.localAdded = 0,
+    this.localUpdated = 0,
+    this.localDeleted = 0,
+    this.remoteAdded = 0,
+    this.remoteUpdated = 0,
+    this.remoteDeleted = 0,
+    this.overwriteCount,
+    required this.mode,
+  });
+
+  /// 是否产生了增量数据变更
+  bool get hasChanges =>
+      localAdded > 0 ||
+      localUpdated > 0 ||
+      localDeleted > 0 ||
+      remoteAdded > 0 ||
+      remoteUpdated > 0 ||
+      remoteDeleted > 0;
+
+  /// 生成易读的同步结果摘要文案
+  String toSummaryMessage() {
+    switch (mode) {
+      case WebDavSyncMode.localToRemote:
+        final count = overwriteCount ?? 0;
+        return '全量覆盖远端完成：已推送全部 $count 个条目';
+      case WebDavSyncMode.remoteToLocal:
+        final count = overwriteCount ?? 0;
+        return '全量覆盖本地完成：已覆盖 $count 个条目';
+      case WebDavSyncMode.automatic:
+        if (!hasChanges) {
+          return '同步完成：无数据变更';
+        }
+        final parts = <String>[];
+        final localParts = <String>[];
+        if (localAdded > 0) localParts.add('新增 $localAdded 条');
+        if (localUpdated > 0) localParts.add('修改 $localUpdated 条');
+        if (localDeleted > 0) localParts.add('删除 $localDeleted 条');
+        if (localParts.isNotEmpty) {
+          parts.add('本地拉取${localParts.join('、')}');
+        }
+
+        final remoteParts = <String>[];
+        if (remoteAdded > 0) remoteParts.add('新增 $remoteAdded 条');
+        if (remoteUpdated > 0) remoteParts.add('修改 $remoteUpdated 条');
+        if (remoteDeleted > 0) remoteParts.add('删除 $remoteDeleted 条');
+        if (remoteParts.isNotEmpty) {
+          parts.add('远端推送${remoteParts.join('、')}');
+        }
+
+        return '同步完成：${parts.join('；')}';
+    }
+  }
+}
+
+/// 保持对旧代码命名的兼容别名
+typedef SyncSummary = SyncStats;
 
 class _RemoteSnapshot {
   final String? body;

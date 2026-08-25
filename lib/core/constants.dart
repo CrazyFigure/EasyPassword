@@ -6,6 +6,9 @@ import 'package:package_info_plus/package_info_plus.dart';
 
 import 'package:flutter/material.dart';
 
+/// 全局根导航键：供全局 Toast 与弹窗无上下文定位 Overlay
+final GlobalKey<NavigatorState> rootNavigatorKey = GlobalKey<NavigatorState>();
+
 /// ---- 设计令牌 ----
 class AppColors {
   // 主色系

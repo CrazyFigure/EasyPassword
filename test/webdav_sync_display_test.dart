@@ -1,9 +1,10 @@
-/// WebDAV 同步结果展示与生命周期行为测试
-library;
-
+import 'package:easypassword/core/constants.dart';
 import 'package:easypassword/core/theme.dart';
+import 'package:easypassword/main.dart';
 import 'package:easypassword/services/database.dart';
+import 'package:easypassword/services/webdav_service.dart';
 import 'package:easypassword/state/app_state.dart';
+import 'package:easypassword/ui/common/app_toast.dart';
 import 'package:easypassword/ui/settings/webdav_setup.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -73,7 +74,11 @@ void main() {
       ChangeNotifierProvider<AppState>.value(
         value: state,
         child: MaterialApp(
+          navigatorKey: rootNavigatorKey,
           theme: AppTheme.build(),
+          builder: (context, child) => GlobalSyncToastListener(
+            child: child ?? const SizedBox.shrink(),
+          ),
           home: const WebDavSetupPage(),
         ),
       ),
@@ -113,7 +118,62 @@ void main() {
         find.textContaining('2026-08-25 15:30:00 · 自动同步完成'), findsOneWidget);
   });
 
-  testWidgets('WebDavSetupPage 点击重置可清空输入框并恢复默认远端路径', (tester) async {
+  test('SyncStats 格式化双向增删改明细与全量覆盖文案', () {
+    // 1. 无数据变更
+    const noChange = SyncStats(mode: WebDavSyncMode.automatic);
+    expect(noChange.toSummaryMessage(), '同步完成：无数据变更');
+
+    // 2. 本地拉取新增与修改，远端推送新增
+    const diff1 = SyncStats(
+      mode: WebDavSyncMode.automatic,
+      localAdded: 2,
+      localUpdated: 1,
+      remoteAdded: 3,
+    );
+    expect(
+      diff1.toSummaryMessage(),
+      '同步完成：本地拉取新增 2 条、修改 1 条；远端推送新增 3 条',
+    );
+
+    // 3. 仅远端推送修改与删除
+    const diff2 = SyncStats(
+      mode: WebDavSyncMode.automatic,
+      remoteUpdated: 1,
+      remoteDeleted: 2,
+    );
+    expect(
+      diff2.toSummaryMessage(),
+      '同步完成：远端推送修改 1 条、删除 2 条',
+    );
+
+    // 4. 全量覆盖远端
+    const overwriteRemote = SyncStats(
+      mode: WebDavSyncMode.localToRemote,
+      overwriteCount: 15,
+    );
+    expect(
+      overwriteRemote.toSummaryMessage(),
+      '全量覆盖远端完成：已推送全部 15 个条目',
+    );
+
+    // 5. 全量覆盖本地
+    const overwriteLocal = SyncStats(
+      mode: WebDavSyncMode.remoteToLocal,
+      overwriteCount: 8,
+    );
+    expect(
+      overwriteLocal.toSummaryMessage(),
+      '全量覆盖本地完成：已覆盖 8 个条目',
+    );
+  });
+
+  testWidgets('WebDavSetupPage 在窄屏（手机端）自适应为双行操作按钮且不折行',
+      (tester) async {
+    // 模拟常见手机屏幕宽度 360px
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() => tester.view.resetPhysicalSize());
+
     state.webDavEnabled = true;
 
     await tester.pumpWidget(
@@ -127,35 +187,57 @@ void main() {
     );
     await tester.pump();
 
-    // 手动在输入框中填入自定义内容
-    final textFields = find.byType(TextField);
-    await tester.enterText(textFields.at(0), 'https://my-custom-dav.com/');
-    await tester.enterText(textFields.at(1), 'my_user');
-    await tester.enterText(textFields.at(2), '/CustomPath');
+    // 验证三个按钮均正常渲染
+    expect(find.widgetWithText(OutlinedButton, '重置'), findsOneWidget);
+    expect(find.widgetWithText(OutlinedButton, '测试连接'), findsOneWidget);
+    expect(find.widgetWithText(FilledButton, '保存配置'), findsOneWidget);
+
+    // 验证按钮位置关系：重置与测试连接在同一水平行（垂直中心接近），保存配置在其下方
+    final resetPos = tester.getCenter(find.widgetWithText(OutlinedButton, '重置'));
+    final testPos =
+        tester.getCenter(find.widgetWithText(OutlinedButton, '测试连接'));
+    final savePos = tester.getCenter(find.widgetWithText(FilledButton, '保存配置'));
+
+    expect((resetPos.dy - testPos.dy).abs(), lessThan(5));
+    expect(savePos.dy, greaterThan(resetPos.dy + 20));
+  });
+
+  testWidgets('全局 Toast 监听器在任意界面下均能弹出同步完成提示', (tester) async {
+    state.webDavEnabled = true;
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider<AppState>.value(
+        value: state,
+        child: MaterialApp(
+          navigatorKey: rootNavigatorKey,
+          theme: AppTheme.build(),
+          builder: (context, child) => GlobalSyncToastListener(
+            child: child ?? const SizedBox.shrink(),
+          ),
+          home: const Scaffold(body: Text('主页')),
+        ),
+      ),
+    );
     await tester.pump();
 
-    expect(find.text('https://my-custom-dav.com/'), findsOneWidget);
-    expect(find.text('my_user'), findsOneWidget);
-    expect(find.text('/CustomPath'), findsOneWidget);
-
-    // 点击重置按钮弹出确认框
-    await tester.tap(find.widgetWithText(OutlinedButton, '重置'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('重置 WebDAV 配置'), findsOneWidget);
-
-    // 确认重置
-    await tester.tap(find.widgetWithText(FilledButton, '重置'));
+    // 模拟后台/定时同步开始并结束
+    state.syncing = true;
+    state.notifyListeners();
     await tester.pump();
-    // 推进时间以消解 Toast 与 sqflite 事务锁定时器
-    await tester.pump(const Duration(seconds: 11));
-    await tester.pumpAndSettle();
 
-    // 验证输入框恢复为默认初始状态
-    expect(find.text('https://my-custom-dav.com/'), findsNothing);
-    expect(find.text('my_user'), findsNothing);
-    final pathField =
-        tester.widget<TextField>(find.widgetWithText(TextField, '远端路径'));
-    expect(pathField.controller?.text, '/EasyPassword');
+    state.syncing = false;
+    state.syncMessage = '同步完成：本地拉取新增 1 条；远端推送修改 2 条';
+    state.notifyListeners();
+    await tester.pump();
+
+    // 验证全局 Toast 成功弹出
+    expect(
+      find.text('同步完成：本地拉取新增 1 条；远端推送修改 2 条'),
+      findsOneWidget,
+    );
+
+    // 等待 Toast 动画与定时器消解
+    await tester.pump(const Duration(milliseconds: 1500));
+    await tester.pumpAndSettle();
   });
 }

@@ -39,32 +39,6 @@ class _WebDavSetupPageState extends State<WebDavSetupPage> {
     _load();
   }
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final appState = Provider.of<AppState>(context);
-    if (_appState != appState) {
-      _appState?.removeListener(_onAppStateChanged);
-      _appState = appState;
-      _wasSyncing = appState.syncing;
-      _appState?.addListener(_onAppStateChanged);
-    }
-  }
-
-  /// 监听全局同步完成事件（主动同步、启动拉取或定时同步），在页面处于前台时统一弹出结果提示
-  void _onAppStateChanged() {
-    if (!mounted) return;
-    final state = _appState;
-    if (state == null) return;
-    if (_wasSyncing && !state.syncing) {
-      final msg = state.syncMessage;
-      if (msg != null && msg.isNotEmpty && msg != '同步中...') {
-        showAppToast(context, msg, kind: toastKindOf(msg));
-      }
-    }
-    _wasSyncing = state.syncing;
-  }
-
   Future<void> _load() async {
     final state = context.read<AppState>();
     final config = await state.settings.getWebDavConfig();
@@ -80,7 +54,6 @@ class _WebDavSetupPageState extends State<WebDavSetupPage> {
 
   @override
   void dispose() {
-    _appState?.removeListener(_onAppStateChanged);
     _urlCtrl.dispose();
     _userCtrl.dispose();
     _passCtrl.dispose();
@@ -361,36 +334,83 @@ class _WebDavSetupPageState extends State<WebDavSetupPage> {
             ),
           ),
           const SizedBox(height: 18),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: busy || !featureEnabled ? null : _resetConfig,
-                  icon: const Icon(Icons.restart_alt, size: 18),
-                  label: const Text('重置'),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final isNarrow = constraints.maxWidth < 440;
+              final resetButton = OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(0, 44),
                 ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: busy || !featureEnabled ? null : _testConnection,
-                  icon: _busy == 'test'
-                      ? _spinner(AppColors.primaryDark)
-                      : const Icon(Icons.wifi_tethering, size: 18),
-                  label: const Text('测试连接'),
+                onPressed: busy || !featureEnabled ? null : _resetConfig,
+                icon: const Icon(Icons.restart_alt, size: 18),
+                label: const Text(
+                  '重置',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: FilledButton.icon(
-                  onPressed: busy || !featureEnabled ? null : _saveConfig,
-                  icon: _busy == 'save'
-                      ? _spinner(Colors.white)
-                      : const Icon(Icons.cloud_done_outlined, size: 18),
-                  label: const Text('保存配置'),
+              );
+
+              final testButton = OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(0, 44),
                 ),
-              ),
-            ],
+                onPressed: busy || !featureEnabled ? null : _testConnection,
+                icon: _busy == 'test'
+                    ? _spinner(AppColors.primaryDark)
+                    : const Icon(Icons.wifi_tethering, size: 18),
+                label: const Text(
+                  '测试连接',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              );
+
+              final saveButton = FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size(0, 44),
+                ),
+                onPressed: busy || !featureEnabled ? null : _saveConfig,
+                icon: _busy == 'save'
+                    ? _spinner(Colors.white)
+                    : const Icon(Icons.cloud_done_outlined, size: 18),
+                label: const Text(
+                  '保存配置',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              );
+
+              // 窄屏（手机端）将次要操作（重置、测试连接）并排在上一行，主要保存操作在下一行铺满
+              if (isNarrow) {
+                return Column(
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(child: resetButton),
+                        const SizedBox(width: 8),
+                        Expanded(child: testButton),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: saveButton,
+                    ),
+                  ],
+                );
+              }
+
+              // 宽屏（桌面端）保持单行三按钮均匀分布
+              return Row(
+                children: [
+                  Expanded(child: resetButton),
+                  const SizedBox(width: 8),
+                  Expanded(child: testButton),
+                  const SizedBox(width: 8),
+                  Expanded(child: saveButton),
+                ],
+              );
+            },
           ),
         ],
       ),
