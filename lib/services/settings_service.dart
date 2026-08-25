@@ -265,6 +265,14 @@ class SettingsService {
     );
   }
 
+  /// 清空已保存的 WebDAV 连接配置。
+  Future<void> clearWebDavConfig() async {
+    await DatabaseService.setSetting(DbKeys.webdavUrl, '');
+    await DatabaseService.setSetting(DbKeys.webdavUser, '');
+    await DatabaseService.setSetting(DbKeys.webdavPass, '');
+    await DatabaseService.setSetting(DbKeys.webdavPath, '');
+  }
+
   /// 总开关缺失时，仅对已经配置过 WebDAV 的老用户保持启用，避免升级后
   /// 中断原有同步；新安装且未配置的用户默认关闭。
   Future<bool> getWebDavEnabled() async {

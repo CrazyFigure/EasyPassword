@@ -26,6 +26,8 @@ class _WebDavSetupPageState extends State<WebDavSetupPage> {
   late final MaskedTextEditingController _passCtrl;
   late final TextEditingController _pathCtrl;
   String? _busy; // 当前操作：test | save | local | remote | automatic
+  AppState? _appState;
+  bool _wasSyncing = false;
 
   @override
   void initState() {
@@ -35,6 +37,32 @@ class _WebDavSetupPageState extends State<WebDavSetupPage> {
     _passCtrl = MaskedTextEditingController();
     _pathCtrl = TextEditingController(text: WebDavDefaults.remotePath);
     _load();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final appState = Provider.of<AppState>(context);
+    if (_appState != appState) {
+      _appState?.removeListener(_onAppStateChanged);
+      _appState = appState;
+      _wasSyncing = appState.syncing;
+      _appState?.addListener(_onAppStateChanged);
+    }
+  }
+
+  /// 监听全局同步完成事件（主动同步、启动拉取或定时同步），在页面处于前台时统一弹出结果提示
+  void _onAppStateChanged() {
+    if (!mounted) return;
+    final state = _appState;
+    if (state == null) return;
+    if (_wasSyncing && !state.syncing) {
+      final msg = state.syncMessage;
+      if (msg != null && msg.isNotEmpty && msg != '同步中...') {
+        showAppToast(context, msg, kind: toastKindOf(msg));
+      }
+    }
+    _wasSyncing = state.syncing;
   }
 
   Future<void> _load() async {
@@ -52,6 +80,7 @@ class _WebDavSetupPageState extends State<WebDavSetupPage> {
 
   @override
   void dispose() {
+    _appState?.removeListener(_onAppStateChanged);
     _urlCtrl.dispose();
     _userCtrl.dispose();
     _passCtrl.dispose();
@@ -116,6 +145,29 @@ class _WebDavSetupPageState extends State<WebDavSetupPage> {
     }
   }
 
+  /// 重置配置：清空输入框并恢复默认远端路径，同时清除持久化的 WebDAV 连接信息。
+  Future<void> _resetConfig() async {
+    final confirmed = await showConfirmDialog(
+      context: context,
+      title: '重置 WebDAV 配置',
+      content: '将清空已填写的 WebDAV 连接信息并恢复为默认状态。确定重置吗？',
+      confirmText: '重置',
+      isDangerous: true,
+    );
+    if (confirmed != true || !mounted) return;
+
+    _urlCtrl.clear();
+    _userCtrl.clear();
+    _passCtrl.clear();
+    _pathCtrl.text = WebDavDefaults.remotePath;
+
+    final state = context.read<AppState>();
+    await state.resetWebDavConfig();
+    if (mounted) {
+      _setStatus('WebDAV 配置已重置');
+    }
+  }
+
   /// 执行同步操作；两个覆盖方向会先明确告知被替换的一端。
   Future<void> _runSync(WebDavSyncMode mode) async {
     final state = context.read<AppState>();
@@ -148,14 +200,14 @@ class _WebDavSetupPageState extends State<WebDavSetupPage> {
       WebDavSyncMode.automatic => 'automatic',
     };
     setState(() => _busy = operation);
-    await state.syncNow(mode: mode);
-    if (!mounted) return;
-    setState(() {
-      _busy = null;
-    });
-    final msg = state.syncMessage;
-    if (msg != null) {
-      showAppToast(context, msg, kind: toastKindOf(msg));
+    try {
+      await state.syncNow(mode: mode);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _busy = null;
+        });
+      }
     }
   }
 
@@ -197,7 +249,7 @@ class _WebDavSetupPageState extends State<WebDavSetupPage> {
                   const SizedBox(height: 22),
                   const _SectionTitle('同步方向'),
                   const SizedBox(height: 10),
-                  _buildSyncActions(busy, enabled),
+                  _buildSyncActions(state, busy, enabled),
                   const SizedBox(height: 22),
                   const _SectionTitle('自动同步'),
                   const SizedBox(height: 10),
@@ -213,14 +265,15 @@ class _WebDavSetupPageState extends State<WebDavSetupPage> {
 
   /// 总开关独立成卡片，关闭后的说明与禁用态保持在同一视觉焦点内。
   Widget _buildFeatureToggle(AppState state, bool busy) {
-    return Container(
-      decoration: BoxDecoration(
-        color: state.webDavEnabled ? AppColors.primaryLightBg : Colors.white,
+    return Material(
+      color: state.webDavEnabled ? AppColors.primaryLightBg : Colors.white,
+      shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(
+        side: BorderSide(
           color: state.webDavEnabled ? AppColors.primary : AppColors.border,
         ),
       ),
+      clipBehavior: Clip.antiAlias,
       child: SwitchListTile(
         secondary: Icon(
           state.webDavEnabled ? Icons.cloud_done_outlined : Icons.cloud_off,
@@ -312,6 +365,14 @@ class _WebDavSetupPageState extends State<WebDavSetupPage> {
             children: [
               Expanded(
                 child: OutlinedButton.icon(
+                  onPressed: busy || !featureEnabled ? null : _resetConfig,
+                  icon: const Icon(Icons.restart_alt, size: 18),
+                  label: const Text('重置'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: OutlinedButton.icon(
                   onPressed: busy || !featureEnabled ? null : _testConnection,
                   icon: _busy == 'test'
                       ? _spinner(AppColors.primaryDark)
@@ -319,7 +380,7 @@ class _WebDavSetupPageState extends State<WebDavSetupPage> {
                   label: const Text('测试连接'),
                 ),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 8),
               Expanded(
                 child: FilledButton.icon(
                   onPressed: busy || !featureEnabled ? null : _saveConfig,
@@ -338,7 +399,10 @@ class _WebDavSetupPageState extends State<WebDavSetupPage> {
 
   /// 三个方向动作在窄屏纵向排列，宽屏并排；每张卡都通过 InkWell 提供
   /// Hover、按压水波纹和禁用反馈。
-  Widget _buildSyncActions(bool busy, bool featureEnabled) {
+  Widget _buildSyncActions(AppState state, bool busy, bool featureEnabled) {
+    // 无论是手动触发、开机自动拉取还是前台定时同步，自动同步进行中均展示转圈
+    final isAutoSyncing =
+        _busy == 'automatic' || (state.syncing && _busy == null);
     final actions = [
       _SyncActionCard(
         icon: Icons.cloud_upload_outlined,
@@ -359,8 +423,8 @@ class _WebDavSetupPageState extends State<WebDavSetupPage> {
       _SyncActionCard(
         icon: Icons.sync,
         title: '自动同步',
-        subtitle: '按修改时间合并后双向更新',
-        busy: _busy == 'automatic',
+        subtitle: isAutoSyncing ? '正在同步中...' : '按修改时间合并后双向更新',
+        busy: isAutoSyncing,
         enabled: featureEnabled && !busy,
         emphasized: true,
         onTap: () => _runSync(WebDavSyncMode.automatic),
@@ -393,12 +457,16 @@ class _WebDavSetupPageState extends State<WebDavSetupPage> {
 
   Widget _buildAutomaticSettings(
       AppState state, bool busy, bool featureEnabled) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
+    final hasSyncStatus = state.syncing ||
+        state.lastSyncAt != null ||
+        (state.syncMessage != null && state.syncMessage!.isNotEmpty);
+    return Material(
+      color: Colors.white,
+      shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.border),
+        side: const BorderSide(color: AppColors.border),
       ),
+      clipBehavior: Clip.antiAlias,
       child: Column(
         children: [
           SwitchListTile(
@@ -433,17 +501,51 @@ class _WebDavSetupPageState extends State<WebDavSetupPage> {
               ],
             ),
           ),
-          if (state.lastSyncAt != null) ...[
+          if (hasSyncStatus) ...[
             const Divider(height: 1, indent: 56, color: AppColors.divider),
             ListTile(
-              leading: const Icon(Icons.history, color: AppColors.primary),
-              title: const Text('最近同步'),
-              subtitle: Text(_formatTime(state.lastSyncAt!)),
+              leading: state.syncing
+                  ? const SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: Padding(
+                        padding: EdgeInsets.all(2),
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    )
+                  : Icon(
+                      (state.syncMessage?.contains('失败') ?? false)
+                          ? Icons.error_outline
+                          : Icons.history,
+                      color: (state.syncMessage?.contains('失败') ?? false)
+                          ? AppColors.danger
+                          : AppColors.primary,
+                    ),
+              title: Text(state.syncing ? '正在同步...' : '最近同步'),
+              subtitle: Text(_buildSyncStatusSubtitle(state)),
             ),
           ],
         ],
       ),
     );
+  }
+
+  String _buildSyncStatusSubtitle(AppState state) {
+    if (state.syncing) {
+      if (state.lastSyncAt != null) {
+        return '上次同步: ${_formatTime(state.lastSyncAt!)}';
+      }
+      return '正在与 WebDAV 服务器同步数据';
+    }
+    final msg = state.syncMessage;
+    if (state.lastSyncAt != null) {
+      final timeStr = _formatTime(state.lastSyncAt!);
+      if (msg != null && msg.isNotEmpty) {
+        return '$timeStr · $msg';
+      }
+      return timeStr;
+    }
+    return msg ?? '尚未进行同步';
   }
 
   String _formatTime(DateTime time) {

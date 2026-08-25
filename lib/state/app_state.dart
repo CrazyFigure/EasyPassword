@@ -23,7 +23,7 @@ import '../services/search_service.dart';
 import '../services/settings_service.dart';
 import '../services/webdav_service.dart';
 
-class AppState extends ChangeNotifier with WidgetsBindingObserver {
+class AppState extends ChangeNotifier {
   // 服务实例
   late final CryptoService crypto;
   late final DataService data;
@@ -65,7 +65,6 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   Timer? _periodicSyncTimer; // 应用运行期间的定时同步任务
   bool _syncQueued = false; // 同步过程中又发生修改时，结束后追加一轮
   Future<void>? _initializationFuture; // 合并并发初始化；失败后清空以支持界面重试
-  bool _observingLifecycle = false; // 防止初始化重试时重复注册生命周期观察者
 
   AppState() {
     crypto = CryptoService();
@@ -101,10 +100,6 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
 
   /// 实际初始化流程；任何步骤失败都回滚运行态标记，避免重试误判为成功。
   Future<void> _initialize() async {
-    if (!_observingLifecycle) {
-      WidgetsBinding.instance.addObserver(this);
-      _observingLifecycle = true;
-    }
     try {
       await appLock.initKey();
       appLockEnabled = await appLock.isEnabled();
@@ -127,6 +122,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       if (lastSyncMillis != null) {
         lastSyncAt = DateTime.fromMillisecondsSinceEpoch(lastSyncMillis);
       }
+      syncMessage = await DatabaseService.getSetting('sync_last_message');
       await refresh();
       initialized = true;
       await _restartPeriodicSync();
@@ -319,6 +315,17 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
+  /// 清空 WebDAV 配置并停止当前已调度的定时和自动同步任务。
+  Future<void> resetWebDavConfig() async {
+    await settings.clearWebDavConfig();
+    _changeSyncTimer?.cancel();
+    _periodicSyncTimer?.cancel();
+    _syncQueued = false;
+    syncMessage = null;
+    await DatabaseService.setSetting('sync_last_message', '');
+    notifyListeners();
+  }
+
   /// 更新自动同步策略。关闭后仍可使用三种手动同步按钮。
   Future<void> updateAutoSync({required bool enabled, int? minutes}) async {
     autoSyncEnabled = enabled;
@@ -402,6 +409,9 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       syncMessage = '$prefix：${e.toString().replaceFirst('Exception: ', '')}';
     } finally {
       syncing = false;
+      if (syncMessage != null && syncMessage!.isNotEmpty) {
+        await DatabaseService.setSetting('sync_last_message', syncMessage!);
+      }
       notifyListeners();
       if (_syncQueued) {
         _syncQueued = false;
@@ -519,13 +529,6 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     );
   }
 
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      _scheduleAutomaticSync(const Duration(milliseconds: 500));
-    }
-  }
-
   /// 解锁
   Future<bool> unlock(String pin) async {
     final ok = await appLock.verify(pin);
@@ -541,9 +544,6 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
 
   @override
   void dispose() {
-    if (_observingLifecycle) {
-      WidgetsBinding.instance.removeObserver(this);
-    }
     _changeSyncTimer?.cancel();
     _periodicSyncTimer?.cancel();
     super.dispose();
