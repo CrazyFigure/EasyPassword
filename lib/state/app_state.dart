@@ -397,12 +397,7 @@ class AppState extends ChangeNotifier {
         'sync_last_success',
         lastSyncAt!.millisecondsSinceEpoch.toString(),
       );
-      syncMessage = switch (mode) {
-        WebDavSyncMode.localToRemote => '本地数据已覆盖远端',
-        WebDavSyncMode.remoteToLocal => '远端数据已覆盖本地',
-        WebDavSyncMode.automatic =>
-          summary.merged > 0 ? '自动同步完成，合并 ${summary.merged} 个条目' : '自动同步完成',
-      };
+      syncMessage = summary.toSummaryMessage();
       await _reloadAfterSync();
     } catch (e) {
       final prefix = background ? '自动同步失败' : '同步失败';

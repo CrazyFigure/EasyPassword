@@ -10,8 +10,66 @@ library;
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../../core/constants.dart';
+import '../../state/app_state.dart';
+
+/// 全局 WebDAV 同步结果 Toast 监听器：在 Windows 和移动端任意界面下均能弹出同步结果提示
+class GlobalSyncToastListener extends StatefulWidget {
+  final Widget child;
+
+  const GlobalSyncToastListener({
+    super.key,
+    required this.child,
+  });
+
+  @override
+  State<GlobalSyncToastListener> createState() =>
+      _GlobalSyncToastListenerState();
+}
+
+class _GlobalSyncToastListenerState extends State<GlobalSyncToastListener> {
+  AppState? _appState;
+  bool _wasSyncing = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final appState = Provider.of<AppState>(context);
+    if (_appState != appState) {
+      _appState?.removeListener(_onAppStateChanged);
+      _appState = appState;
+      _wasSyncing = appState.syncing;
+      _appState?.addListener(_onAppStateChanged);
+    }
+  }
+
+  @override
+  void dispose() {
+    _appState?.removeListener(_onAppStateChanged);
+    super.dispose();
+  }
+
+  void _onAppStateChanged() {
+    if (!mounted) return;
+    final state = _appState;
+    if (state == null) return;
+    // 当同步状态从进行中切换到完成时，全局弹出 Toast 浮窗提示
+    if (_wasSyncing && !state.syncing) {
+      final msg = state.syncMessage;
+      if (msg != null && msg.isNotEmpty && msg != '同步中...') {
+        showAppToast(context, msg, kind: toastKindOf(msg));
+      }
+    }
+    _wasSyncing = state.syncing;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return widget.child;
+  }
+}
 
 /// 提示语义。中性用于「同步中...」这类既非成功也非失败的状态。
 enum ToastKind { success, error, neutral }
@@ -25,18 +83,19 @@ const Duration _kFadeOut = Duration(milliseconds: 130);
 
 /// 弹出袖珍悬浮提示，[duration] 后自动消失。
 ///
-/// [context] 必须来自触发操作的那个界面（页面或弹窗内部），
-/// 组件据此查找最近的 Overlay 完成锚定。
+/// [context] 可为空；优先从当前 context 寻找最近 Overlay，未找到时回退到全局根 Overlay。
 void showAppToast(
-  BuildContext context,
+  BuildContext? context,
   String message, {
   ToastKind kind = ToastKind.neutral,
   Duration duration = _kToastDuration,
 }) {
   if (message.isEmpty) return;
-  // rootOverlay: false 是本组件的核心——取最近的 Overlay。
-  // 对话框/弹窗由 Navigator 推入自己的 Overlay，因此提示会浮在弹窗之上。
-  final overlay = Overlay.maybeOf(context, rootOverlay: false);
+  // 优先取最近的 Overlay（弹窗内触发会浮在弹窗自身上方）；否则回退到全局根 Overlay
+  final overlay = (context != null
+          ? Overlay.maybeOf(context, rootOverlay: false)
+          : null) ??
+      rootNavigatorKey.currentState?.overlay;
   if (overlay == null) return;
   _ToastHost.show(overlay, message, kind, duration);
 }
