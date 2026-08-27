@@ -55,7 +55,7 @@ class _GlobalSyncToastListenerState extends State<GlobalSyncToastListener> {
     if (!mounted) return;
     final state = _appState;
     if (state == null) return;
-    // 当同步状态从进行中切换到完成时，全局弹出 Toast 浮窗提示
+    // 当同步状态从进行中切换到完成时，全局弹出 Toast 浮窗提示（包含无数据变更时的反馈）
     if (_wasSyncing && !state.syncing) {
       final msg = state.syncMessage;
       if (msg != null && msg.isNotEmpty && msg != '同步中...') {
@@ -111,10 +111,30 @@ ToastKind toastKindOf(String message) {
   return ToastKind.success;
 }
 
-/// 管理单条提示的生命周期：同一 Overlay 内后来的提示会顶掉前一条，
-/// 避免连续点击时提示排队堆积。
+/// 当前活跃的 Toast 实体包装，保证 remove() 与 dispose() 幂等且仅执行一次
+class _ActiveToast {
+  final OverlayEntry entry;
+  final _ToastController controller;
+  bool _isRemoved = false;
+
+  _ActiveToast({
+    required this.entry,
+    required this.controller,
+  });
+
+  /// 安全移除并销毁 OverlayEntry（不受 entry.mounted 渲染状态的限制）
+  void remove() {
+    if (_isRemoved) return;
+    _isRemoved = true;
+    entry.remove();
+    entry.dispose();
+  }
+}
+
+/// 管理单条提示的生命周期：同一时刻全局最多保留一条活跃 Toast，
+/// 后来的提示会立即顶掉前一条，避免后台堆积或连续点击时排队。
 class _ToastHost {
-  static OverlayEntry? _entry;
+  static _ActiveToast? _current;
   static Timer? _timer;
 
   static void show(
@@ -123,6 +143,7 @@ class _ToastHost {
     ToastKind kind,
     Duration duration,
   ) {
+    // 立即移除已有提示，确保不出现多层叠加
     _dismissNow();
 
     final controller = _ToastController();
@@ -133,29 +154,36 @@ class _ToastHost {
         controller: controller,
       ),
     );
-    _entry = entry;
+    final toast = _ActiveToast(
+      entry: entry,
+      controller: controller,
+    );
+    _current = toast;
     overlay.insert(entry);
 
     _timer = Timer(duration, () async {
-      // 淡出播完再移除，避免提示「啪」地闪断。
-      await controller.fadeOut();
-      _remove(entry);
+      // 淡出播完再移除；设置超时兜底，防止后台窗口挂起导致动画 Promise 永不返回
+      try {
+        await controller.fadeOut().timeout(
+              const Duration(milliseconds: 300),
+              onTimeout: () {},
+            );
+      } catch (_) {}
+      if (identical(_current, toast)) {
+        _current = null;
+      }
+      toast.remove();
     });
   }
 
-  /// 立即撤下当前提示（新提示到来时调用），不播淡出动画。
+  /// 立即撤下当前提示（新提示到来或销毁时调用），不播淡出动画
   static void _dismissNow() {
     _timer?.cancel();
     _timer = null;
-    final entry = _entry;
-    if (entry != null) _remove(entry);
-  }
-
-  static void _remove(OverlayEntry entry) {
-    if (!entry.mounted) return;
-    entry.remove();
-    if (identical(_entry, entry)) {
-      _entry = null;
+    final toast = _current;
+    if (toast != null) {
+      _current = null;
+      toast.remove();
     }
   }
 }
@@ -175,7 +203,9 @@ class _ToastController {
   }
 
   void _finishFadeOut() {
-    _completer?.complete();
+    if (_completer != null && !_completer!.isCompleted) {
+      _completer!.complete();
+    }
     _completer = null;
   }
 }
@@ -222,7 +252,10 @@ class _ToastLayerState extends State<_ToastLayer>
       return;
     }
     _fade.duration = _kFadeOut;
-    await _fade.reverse();
+    // 捕获可能因页面快速切换/销毁而产生的 Ticker 取消异常
+    try {
+      await _fade.reverse().orCancel;
+    } catch (_) {}
     widget.controller._finishFadeOut();
   }
 
