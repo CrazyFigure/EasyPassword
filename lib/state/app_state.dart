@@ -56,6 +56,8 @@ class AppState extends ChangeNotifier {
   bool webDavEnabled = false; // WebDAV 功能总开关；关闭时配置和同步都不可用
   bool syncing = false;
   String? syncMessage;
+  // 最近一次同步是否为后台/定时自动触发（用于静默无数据变更的通知）
+  bool lastSyncBackground = false;
   bool autoSyncEnabled = true; // 修改后即时同步与前台定时同步总开关
   int autoSyncIntervalMinutes = 15; // 前台定时拉取其他设备变更的间隔
   DateTime? lastSyncAt; // 最近一次成功同步时间
@@ -362,6 +364,8 @@ class AppState extends ChangeNotifier {
       return;
     }
     syncing = true;
+    // 记录触发来源（后台自动或手动触发），用于后续提示分流
+    lastSyncBackground = background;
     if (!background) syncMessage = '同步中...';
     notifyListeners();
     try {

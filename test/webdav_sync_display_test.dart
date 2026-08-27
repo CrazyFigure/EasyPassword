@@ -240,4 +240,71 @@ void main() {
     await tester.pump(const Duration(milliseconds: 1500));
     await tester.pumpAndSettle();
   });
+
+  testWidgets('后台定时同步无数据变更时也能正常弹出 Toast 提示', (tester) async {
+    state.webDavEnabled = true;
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider<AppState>.value(
+        value: state,
+        child: MaterialApp(
+          navigatorKey: rootNavigatorKey,
+          theme: AppTheme.build(),
+          builder: (context, child) => GlobalSyncToastListener(
+            child: child ?? const SizedBox.shrink(),
+          ),
+          home: const Scaffold(body: Text('主页')),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    // 模拟后台自动同步（background = true）且无数据变更
+    state.syncing = true;
+    state.lastSyncBackground = true;
+    state.notifyListeners();
+    await tester.pump();
+
+    state.syncing = false;
+    state.syncMessage = '同步完成：无数据变更';
+    state.notifyListeners();
+    await tester.pump();
+
+    // 验证正常弹出 Toast 提示
+    expect(find.text('同步完成：无数据变更'), findsOneWidget);
+
+    // 等待 Toast 动画与定时器消解
+    await tester.pump(const Duration(milliseconds: 1500));
+    await tester.pumpAndSettle();
+    expect(find.text('同步完成：无数据变更'), findsNothing);
+  });
+
+  testWidgets('在未触发渲染/后台静默期间连续多次触发 Toast 时不会在 Overlay 中堆叠残留',
+      (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        navigatorKey: rootNavigatorKey,
+        home: const Scaffold(body: Text('主页')),
+      ),
+    );
+
+    // 连续触发 10 次 Toast（模拟后台多轮同步但未驱动帧渲染的极端场景）
+    for (int i = 0; i < 10; i++) {
+      showAppToast(null, '提示信息 #$i');
+    }
+
+    // 模拟前台首次恢复渲染帧
+    await tester.pump();
+
+    // 仅最后一条 Toast 会被挂载渲染，前面的所有 OverlayEntry 均已被彻底移除，杜绝阴影多层叠加
+    for (int i = 0; i < 9; i++) {
+      expect(find.text('提示信息 #$i'), findsNothing);
+    }
+    expect(find.text('提示信息 #9'), findsOneWidget);
+
+    // 等待最后一条 Toast 倒计时结束并淡出消解
+    await tester.pump(const Duration(milliseconds: 1500));
+    await tester.pumpAndSettle();
+    expect(find.text('提示信息 #9'), findsNothing);
+  });
 }
