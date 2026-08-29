@@ -30,6 +30,10 @@ target_compile_definitions(${BINARY_NAME} PRIVATE "FLUTTER_VERSION_BUILD=${FLUTT
 # Disable Windows macros that collide with C++ standard library functions.
 target_compile_definitions(${BINARY_NAME} PRIVATE "NOMINMAX")
 
+# Debug 与 Profile 都使用开发数据目录，也必须使用开发版单实例身份，避免阻止安装版启动。
+target_compile_definitions(${BINARY_NAME} PRIVATE
+  "$<$<NOT:$<CONFIG:Release>>:EASYPASSWORD_DEVELOPMENT>")
+
 # Add dependency libraries and include directories. Add any application-specific
 # dependencies here.
 target_link_libraries(${BINARY_NAME} PRIVATE flutter flutter_wrapper_app)

@@ -7,14 +7,21 @@
 
 namespace {
 
-// 单实例互斥量限制在当前登录会话，避免重复点击后堆积多个后台进程。
+// 开发版与安装版使用不同互斥量和标题：二者可以并行，同一环境内仍保持单实例。
+#ifdef EASYPASSWORD_DEVELOPMENT
+constexpr const wchar_t kSingleInstanceMutex[] =
+    L"Local\\CrazyFigure.EasyPassword.Dev.SingleInstance";
+constexpr const wchar_t kWindowTitle[] = L"EasyPassword Dev";
+#else
 constexpr const wchar_t kSingleInstanceMutex[] =
     L"Local\\CrazyFigure.EasyPassword.SingleInstance";
+constexpr const wchar_t kWindowTitle[] = L"EasyPassword";
+#endif
 
 // 已有实例可能还在等待 Flutter 首帧；再次启动时主动显示并激活它。
 void ActivateExistingInstance() {
   HWND existing_window =
-      ::FindWindowW(L"FLUTTER_RUNNER_WIN32_WINDOW", L"EasyPassword");
+      ::FindWindowW(L"FLUTTER_RUNNER_WIN32_WINDOW", kWindowTitle);
   if (existing_window == nullptr) {
     return;
   }
@@ -81,7 +88,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
           static_cast<unsigned int>(top > 0 ? top : 0));
     }
   }
-  if (!window.Create(L"EasyPassword", origin, size)) {
+  if (!window.Create(kWindowTitle, origin, size)) {
     ::ReleaseMutex(single_instance);
     ::CloseHandle(single_instance);
     ::CoUninitialize();
