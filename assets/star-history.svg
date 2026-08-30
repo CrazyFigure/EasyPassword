@@ -46,13 +46,13 @@
     <text class="axis-label" x="68" y="410" text-anchor="middle">2026-08-07</text>
     <text class="axis-label" x="254" y="410" text-anchor="middle">2026-08-12</text>
     <text class="axis-label" x="440" y="410" text-anchor="middle">2026-08-18</text>
-    <text class="axis-label" x="626" y="410" text-anchor="middle">2026-08-23</text>
-    <text class="axis-label" x="812" y="410" text-anchor="middle">2026-08-29</text>
+    <text class="axis-label" x="626" y="410" text-anchor="middle">2026-08-24</text>
+    <text class="axis-label" x="812" y="410" text-anchor="middle">2026-08-30</text>
   </g>
-  <path class="area" d="M 68 368 H 100.1 V 368 H 133.86 V 368 H 167.68 V 368 H 201.08 V 368 H 235.08 V 368 H 268.73 V 368 H 302.24 V 368 H 334.34 V 368 H 368.11 V 368 H 401.66 V 368 H 435.12 V 368 H 468.76 V 368 H 502.31 V 368 H 536.03 V 368 H 569.39 V 368 H 603.18 V 368 H 636.77 V 368 H 670.2 V 368 H 749.5 V 368 H 785.49 V 368 H 812 V 368 L 812 368 L 68 368 Z" />
-  <path class="line" d="M 68 368 H 100.1 V 368 H 133.86 V 368 H 167.68 V 368 H 201.08 V 368 H 235.08 V 368 H 268.73 V 368 H 302.24 V 368 H 334.34 V 368 H 368.11 V 368 H 401.66 V 368 H 435.12 V 368 H 468.76 V 368 H 502.31 V 368 H 536.03 V 368 H 569.39 V 368 H 603.18 V 368 H 636.77 V 368 H 670.2 V 368 H 749.5 V 368 H 785.49 V 368 H 812 V 368" />
+  <path class="area" d="M 68 368 H 98.78 V 368 H 131.15 V 368 H 163.57 V 368 H 195.59 V 368 H 228.2 V 368 H 260.46 V 368 H 292.58 V 368 H 323.36 V 368 H 355.73 V 368 H 387.9 V 368 H 419.99 V 368 H 452.24 V 368 H 484.41 V 368 H 516.73 V 368 H 548.72 V 368 H 581.12 V 368 H 613.33 V 368 H 645.38 V 368 H 721.4 V 368 H 755.91 V 368 H 781.33 V 368 H 812 V 368 L 812 368 L 68 368 Z" />
+  <path class="line" d="M 68 368 H 98.78 V 368 H 131.15 V 368 H 163.57 V 368 H 195.59 V 368 H 228.2 V 368 H 260.46 V 368 H 292.58 V 368 H 323.36 V 368 H 355.73 V 368 H 387.9 V 368 H 419.99 V 368 H 452.24 V 368 H 484.41 V 368 H 516.73 V 368 H 548.72 V 368 H 581.12 V 368 H 613.33 V 368 H 645.38 V 368 H 721.4 V 368 H 755.91 V 368 H 781.33 V 368 H 812 V 368" />
   <circle class="dot" cx="812" cy="368" r="6" />
   <rect class="badge" x="682" y="28" width="130" height="34" rx="17" />
   <text class="badge-text" x="747" y="50" text-anchor="middle">0 stars</text>
-  <text class="status" x="812" y="428" text-anchor="end">Observed snapshots: 2026-08-07 – 2026-08-29</text>
+  <text class="status" x="812" y="428" text-anchor="end">Observed snapshots: 2026-08-07 – 2026-08-30</text>
 </svg>
