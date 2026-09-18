@@ -86,7 +86,11 @@ class _PasswordDetailPageState extends State<PasswordDetailPage> {
           ? const Center(child: CircularProgressIndicator())
           : ListView(
               controller: _scrollCtrl,
-              padding: const EdgeInsets.all(16),
+              // 窄屏下收紧水平外边距到 10px，为卡片和正文释放更多横向空间
+              padding: EdgeInsets.symmetric(
+                horizontal: MediaQuery.sizeOf(context).width < 420 ? 10 : 16,
+                vertical: 16,
+              ),
               children: [
                 // 站点信息头（URL 可复制）
                 _SiteHeader(item: _item),
@@ -491,9 +495,11 @@ class _AccountCardState extends State<_AccountCard> {
         onSave: _saveEdit,
       );
     }
+    final isCompact = MediaQuery.sizeOf(context).width < 420;
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(14),
+      // 窄屏下收紧水平内边距到 10px，让卡片内部各行正文宽度最大化
+      padding: EdgeInsets.symmetric(horizontal: isCompact ? 10 : 12, vertical: 12),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
@@ -502,7 +508,7 @@ class _AccountCardState extends State<_AccountCard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 行头：拖拽把手左置 + 账号序号 + 更多操作菜单
+          // 行头：拖拽把手左置 + 账号序号 + 更多操作菜单（靠右对齐）
           Row(
             children: [
               DragHandle(index: widget.index, size: 16),
@@ -513,8 +519,6 @@ class _AccountCardState extends State<_AccountCard> {
                       fontWeight: FontWeight.w600,
                       color: AppColors.textMain)),
               const Spacer(),
-              // 前一列留空：本行无复制操作，占位以对齐下方各行的「显示/隐藏」列
-              const ActionSlot(),
               ActionSlot(
                 child: RowActionMenu(
                   size: 18,
