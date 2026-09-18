@@ -31,11 +31,11 @@ double _left(WidgetTester tester, String text) =>
 
 void main() {
   testWidgets('各字段的值从同一竖向位置开始，标签长短不影响对齐', (tester) async {
-    // 「用户名」三字与「平台密码」四字标签长度不同，值仍需左对齐
+    // 同一卡片内指定相同标签字数定宽时，「用户名」三字与「平台密码」四字值仍需左对齐
     await _pumpRows(tester, const [
-      DetailFieldRow(label: '用户名', value: 'alice@example.com'),
-      DetailFieldRow(label: '平台密码', value: '******'),
-      DetailFieldRow(label: '备注', value: '工作账号'),
+      DetailFieldRow(label: '用户名', labelChars: 4, value: 'alice@example.com'),
+      DetailFieldRow(label: '平台密码', labelChars: 4, value: '******'),
+      DetailFieldRow(label: '备注', labelChars: 4, value: '工作账号'),
     ]);
 
     final valueLefts = [
@@ -179,9 +179,9 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('字段行不为卡片级菜单预留第三个操作列', (tester) async {
-    // 回归移动端用户名被截断的问题：字段行右侧此前固定排三个插槽，
-    // 而第三列（卡片级「更多」菜单）在所有调用点都是空的，白占一个插槽宽度。
+  testWidgets('不遮挡字段行不渲染空眼睛占位插槽，仅渲染复制插槽', (tester) async {
+    // 用户名与备注等无需显示/隐藏的字段行，不渲染空的 ActionSlot 占位，
+    // 把空间全部释放给正文；只渲染复制按钮一个插槽。
     await _pumpRows(
       tester,
       [
@@ -194,8 +194,8 @@ void main() {
       width: 360,
     );
 
-    // 有值行只应出现「复制」一个插槽；空插槽仅用于对齐，不应多出第三个
-    expect(find.byType(ActionSlot), findsNWidgets(2));
+    // 仅应出现「复制」这一个插槽
+    expect(find.byType(ActionSlot), findsOneWidget);
   });
 
   testWidgets('窄屏下 11 位手机号能完整显示', (tester) async {
@@ -224,5 +224,51 @@ void main() {
     )..layout();
     expect(tester.getSize(find.text(phone)).width,
         greaterThanOrEqualTo(painter.width));
+  });
+
+  testWidgets('宽屏与窄屏下字段行均无左缩进空白（fieldIndent 为 0）', (tester) async {
+    // 宽屏（Windows桌面端）
+    await _pumpRows(
+      tester,
+      [
+        const DetailFieldRow(label: '用户名', value: 'admin'),
+      ],
+      width: 900,
+    );
+    expect(_left(tester, '用户名'), equals(0.0));
+
+    // 窄屏（手机端）
+    await _pumpRows(
+      tester,
+      [
+        const DetailFieldRow(label: '用户名', value: 'admin'),
+      ],
+      width: 360,
+    );
+    expect(_left(tester, '用户名'), equals(0.0));
+  });
+
+  testWidgets('密码详情页默认3字标签定宽使正文起点更靠左，释放更多横向空间', (tester) async {
+    // 3字标签（密码页默认）
+    await _pumpRows(
+      tester,
+      [
+        const DetailFieldRow(label: '用户名', labelChars: 3, value: 'my_value'),
+      ],
+      width: 360,
+    );
+    final left3 = _left(tester, 'my_value');
+
+    // 4字标签（ApiKey页）
+    await _pumpRows(
+      tester,
+      [
+        const DetailFieldRow(label: '用户名', labelChars: 4, value: 'my_value'),
+      ],
+      width: 360,
+    );
+    final left4 = _left(tester, 'my_value');
+
+    expect(left3, lessThan(left4));
   });
 }

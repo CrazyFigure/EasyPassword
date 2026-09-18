@@ -89,7 +89,11 @@ class _ApiKeyDetailPageState extends State<ApiKeyDetailPage> {
           ? const Center(child: CircularProgressIndicator())
           : ListView(
               controller: _scrollCtrl,
-              padding: const EdgeInsets.all(16),
+              // 窄屏下收紧水平外边距到 10px，为卡片和正文释放更多横向空间
+              padding: EdgeInsets.symmetric(
+                horizontal: MediaQuery.sizeOf(context).width < 420 ? 10 : 16,
+                vertical: 16,
+              ),
               children: [
                 _SiteHeader(item: _item),
                 const SizedBox(height: 12),
@@ -408,9 +412,11 @@ class _UserCardState extends State<_UserCard> {
       );
     }
 
+    final isCompact = MediaQuery.sizeOf(context).width < 420;
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(14),
+      // 窄屏下收紧水平内边距到 10px，让卡片内部各行正文宽度最大化
+      padding: EdgeInsets.symmetric(horizontal: isCompact ? 10 : 12, vertical: 12),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
@@ -419,8 +425,7 @@ class _UserCardState extends State<_UserCard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 用户行头：仅承载身份与卡片级操作，具体字段交给下方字段行，
-          // 避免出现「行头也是一个字段」造成的层级混乱
+          // 用户行头：仅承载身份与卡片级操作，具体字段交给下方字段行（操作菜单靠右对齐）
           Row(children: [
             DragHandle(index: widget.index, size: 16),
             const SizedBox(width: 4),
@@ -440,8 +445,6 @@ class _UserCardState extends State<_UserCard> {
                 overflow: TextOverflow.ellipsis,
               ),
             ),
-            // 前一列留空：本行无复制操作，占位以对齐下方各行的「显示/隐藏」列
-            const ActionSlot(),
             ActionSlot(
               child: RowActionMenu(
                 size: 16,
@@ -462,15 +465,17 @@ class _UserCardState extends State<_UserCard> {
             ),
           ]),
           const SizedBox(height: 4),
-          // 用户名与平台密码同为字段行：标签线、值线、操作列三者对齐
+          // 用户名与平台密码同为字段行：标签线、值线、操作列三者对齐（定宽以最长4字「平台密码」为准）
           DetailFieldRow(
             label: '用户名',
+            labelChars: 4,
             value: widget.account.username,
             copyLabel: '用户名',
             onCopy: () async => widget.account.username,
           ),
           DetailFieldRow(
             label: '平台密码',
+            labelChars: 4,
             value:
                 _pwdRevealed ? (_plainPwd ?? '') : '*' * (_plainPwdLength ?? 0),
             pending: _plainPwd == null,
@@ -488,6 +493,7 @@ class _UserCardState extends State<_UserCard> {
           if (widget.account.note.isNotEmpty)
             DetailFieldRow(
               label: '备注',
+              labelChars: 4,
               value: widget.account.note,
               copyLabel: '备注',
               onCopy: () async => widget.account.note,
@@ -742,12 +748,13 @@ class _ApiKeyTileState extends State<_ApiKeyTile> {
       );
     }
 
+    final isCompact = MediaQuery.sizeOf(context).width < 420;
     // 整条可长按拖动排序：把手图标不再是唯一拖动区域
     return QuickReorderableDelayedDragStartListener(
       index: widget.index,
       child: Container(
         margin: const EdgeInsets.only(bottom: 8),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        padding: EdgeInsets.symmetric(horizontal: isCompact ? 8 : 12, vertical: 8),
         decoration: BoxDecoration(
           // 中性浅底 + 描边，替代原来的粉色底
           color: AppColors.background,
@@ -757,10 +764,10 @@ class _ApiKeyTileState extends State<_ApiKeyTile> {
         child: Row(
           children: [
             // 拖拽把手移至左侧，与操作按钮分离，避免右侧拥挤
-            DragHandle(index: widget.index, size: 18),
+            DragHandle(index: widget.index, size: 16),
             const SizedBox(width: 4),
             const Icon(Icons.key, size: 16, color: AppColors.primary),
-            const SizedBox(width: 8),
+            const SizedBox(width: 6),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -790,6 +797,8 @@ class _ApiKeyTileState extends State<_ApiKeyTile> {
                 ),
                 tooltip: visible ? '隐藏' : '显示',
                 visualDensity: VisualDensity.compact,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
                 onPressed: _toggle,
               ),
             ),

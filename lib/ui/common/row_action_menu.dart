@@ -16,16 +16,14 @@ import '../../core/constants.dart';
 /// 窄屏阈值：低于此宽度按移动端紧凑尺寸排布
 const double _kCompactWidth = 420;
 
-/// 操作插槽宽度。桌面端取 IconButton(compact) 的交互尺寸 40；
-/// 窄屏收紧到 36，避免三列固定宽度过度压缩正文。
+/// 操作插槽宽度。桌面端收紧到 34；窄屏收紧到 30，避免操作列过度压缩正文。
 double actionSlotWidth(BuildContext context) =>
-    MediaQuery.sizeOf(context).width < _kCompactWidth ? 36 : 40;
+    MediaQuery.sizeOf(context).width < _kCompactWidth ? 30 : 34;
 
-/// 操作插槽高度：与 IconButton(compact) 的实际高度一致。
-/// 空插槽必须撑起同样的高度，否则「没有按钮的字段行」会比
-/// 「有按钮的行」矮一截，行距看起来忽大忽小。
+/// 操作插槽高度：与紧凑按钮的实际高度一致。
+/// 空插槽或无按钮行需保持同样高度，避免行距忽大忽小。
 double actionSlotHeight(BuildContext context) =>
-    MediaQuery.sizeOf(context).width < _kCompactWidth ? 36 : 40;
+    MediaQuery.sizeOf(context).width < _kCompactWidth ? 32 : 36;
 
 /// 等宽等高操作插槽：[child] 为空时仅占位，用于让各行图标列在竖向上对齐
 class ActionSlot extends StatelessWidget {

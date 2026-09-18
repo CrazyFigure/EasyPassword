@@ -18,35 +18,29 @@ const double _kCompactWidth = 420;
 /// 标签文字字号，与下方 Text 的样式保持同一个值
 const double _kLabelFontSize = 12;
 
-/// 标签列宽度：以最长标签「平台密码」四个汉字为准，
+/// 标签列宽度：默认以最长常见标签三个汉字为准（API Key 页面平台密码可传 4 字），
 /// 保证同卡片内各行的值从同一竖向位置开始。
 ///
-/// 这里按字号实际算宽而不是写死像素：一是窄屏下 58 比四个汉字所需
-/// 多出近 10px，横向本就紧张，这点空白直接从值文本上扣；二是用户调大
-/// 系统字号后固定宽度会把「平台密码」截成「平台密…」。
-double fieldLabelWidth(BuildContext context) {
+/// 这里按字号实际算宽而不是写死像素：一是窄屏下减少多余留白直接还给值文本；
+/// 二是用户调大系统字号后可自适应缩放。
+double fieldLabelWidth(BuildContext context, [int chars = 3]) {
   final scaled = MediaQuery.textScalerOf(context).scale(_kLabelFontSize);
-  // 汉字宽度约等于字号，四字之后留一点与值之间的呼吸位
-  return scaled * 4 + 6;
+  // 汉字宽度约等于字号，四字或三字之后留 4px 呼吸位，为正文腾出最大空间
+  return scaled * chars + 4;
 }
 
-/// 字段区相对卡片的左缩进。
-///
-/// 桌面端仍取拖拽把手的宽度，让字段与行头图标左对齐；窄屏放弃这份对齐，
-/// 只留一点层级感——移动端每一像素都要让给值文本。
-double fieldIndent(BuildContext context) =>
-    MediaQuery.sizeOf(context).width < _kCompactWidth ? 10 : 26;
+/// 字段区相对卡片的左缩进（已取消左侧多余空白缩进，与卡片左对齐）。
+double fieldIndent(BuildContext context) => 0;
 
 /// 统一字段行。
 ///
 /// [value] 传入已处理好的显示文本（明文或等长星号）；
-/// [obscurable] 为真时在最左操作列渲染显示/隐藏按钮，否则留空占位。
-/// 操作列顺序固定为：显示/隐藏 → 复制，缺项以空插槽占位。
-/// 卡片级操作（编辑、删除）由行头的「更多」菜单承担，字段行不再为它
-/// 预留第三列——那一列在所有调用点上都是空的，窄屏下白占约 36px。
+/// [obscurable] 为真时在最左操作列渲染显示/隐藏按钮，不可遮挡时不占位以释放正文宽度。
+/// 操作列顺序固定为：显示/隐藏 → 复制。
 class DetailFieldRow extends StatelessWidget {
   final String label;
   final String value;
+  final int labelChars;
 
   /// 是否可遮挡（渲染显示/隐藏按钮）
   final bool obscurable;
@@ -71,6 +65,7 @@ class DetailFieldRow extends StatelessWidget {
     super.key,
     required this.label,
     required this.value,
+    this.labelChars = 3,
     this.obscurable = false,
     this.revealed = false,
     this.onToggle,
@@ -87,56 +82,62 @@ class DetailFieldRow extends StatelessWidget {
     final isEmpty = value.isEmpty && !pending;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 1),
-      child: Row(
-        children: [
-          SizedBox(width: fieldIndent(context)),
-          // 标签列：定宽，各行值因此从同一位置开始
-          SizedBox(
-            width: fieldLabelWidth(context),
-            child: Text(
-              label,
-              style: const TextStyle(fontSize: 12, color: AppColors.textWeak),
-            ),
-          ),
-          Expanded(
-            child: Text(
-              isEmpty ? emptyHint : value,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: emphasized ? 14 : 13,
-                fontWeight: emphasized ? FontWeight.w500 : FontWeight.w400,
-                color: isEmpty ? AppColors.textFaint : AppColors.textMain,
-                // 等宽数字：手机号与星号纵向更齐整
-                fontFeatures: const [FontFeature.tabularFigures()],
+      child: SizedBox(
+        // 固定单行内容高度：保证空值行与有值行、有按钮与无按钮行严格等高
+        height: actionSlotHeight(context),
+        child: Row(
+          children: [
+            if (fieldIndent(context) > 0)
+              SizedBox(width: fieldIndent(context)),
+            // 标签列：定宽，各行值因此从同一位置开始
+            SizedBox(
+              width: fieldLabelWidth(context, labelChars),
+              child: Text(
+                label,
+                style: const TextStyle(fontSize: 12, color: AppColors.textWeak),
               ),
             ),
-          ),
-          // 显示/隐藏在复制之前：先决定看不看得见，再决定取不取走
-          ActionSlot(
-            child: obscurable && !isEmpty
-                ? IconButton(
-                    icon: Icon(
-                      revealed ? Icons.visibility : Icons.visibility_off,
-                      size: 16,
-                      color: AppColors.textWeak,
-                    ),
-                    tooltip: revealed ? '隐藏' : '显示',
-                    visualDensity: VisualDensity.compact,
-                    onPressed: onToggle,
-                  )
-                : null,
-          ),
-          ActionSlot(
-            child: onCopy != null && !isEmpty
-                ? CopyIconButton(
-                    label: copyLabel ?? label,
+            Expanded(
+              child: Text(
+                isEmpty ? emptyHint : value,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: emphasized ? 14 : 13,
+                  fontWeight: emphasized ? FontWeight.w500 : FontWeight.w400,
+                  color: isEmpty ? AppColors.textFaint : AppColors.textMain,
+                  // 等宽数字：手机号与星号纵向更齐整
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              ),
+            ),
+            // 仅在支持遮挡且有内容时渲染显示/隐藏按钮；不可遮挡时不占位以将空间还给正文
+            if (obscurable && !isEmpty)
+              ActionSlot(
+                child: IconButton(
+                  icon: Icon(
+                    revealed ? Icons.visibility : Icons.visibility_off,
                     size: 16,
-                    onResolve: onCopy!,
-                  )
-                : null,
-          ),
-        ],
+                    color: AppColors.textWeak,
+                  ),
+                  tooltip: revealed ? '隐藏' : '显示',
+                  visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  onPressed: onToggle,
+                ),
+              ),
+            // 复制按钮始终靠最右排布，在竖向上保持严格对齐
+            if (onCopy != null && !isEmpty)
+              ActionSlot(
+                child: CopyIconButton(
+                  label: copyLabel ?? label,
+                  size: 16,
+                  onResolve: onCopy!,
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }

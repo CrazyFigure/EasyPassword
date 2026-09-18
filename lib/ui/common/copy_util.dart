@@ -40,6 +40,8 @@ class CopyIconButton extends StatelessWidget {
       icon: Icon(Icons.copy_rounded, size: size, color: AppColors.textWeak),
       tooltip: '复制$label',
       visualDensity: VisualDensity.compact,
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints(),
       onPressed: () async {
         final text = await onResolve();
         if (text == null || text.isEmpty) return;
