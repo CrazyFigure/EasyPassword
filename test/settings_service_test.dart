@@ -25,6 +25,27 @@ void main() {
     DatabaseService.overridePath = null;
   });
 
+  test('首次使用的底栏只显示密码、搜索和设置', () async {
+    final config = await SettingsService().getTabConfig();
+
+    expect(config.visibleIds, ['password', 'search', 'settings']);
+    expect(config.defaultTabId, 'password');
+  });
+
+  test('已有用户保存的底栏配置不会被首次启动默认值覆盖', () async {
+    final settings = SettingsService();
+    const saved = TabConfig(
+      visibleIds: ['apikey', 'password', 'search', 'settings'],
+      defaultTabId: 'apikey',
+    );
+
+    await settings.setTabConfig(saved);
+    final config = await settings.getTabConfig();
+
+    expect(config.visibleIds, saved.visibleIds);
+    expect(config.defaultTabId, saved.defaultTabId);
+  });
+
   test('旧版共用排序规则可作为两个分区的升级回退值', () async {
     await DatabaseService.setSetting(DbKeys.sortMode, 'custom');
     final settings = SettingsService();

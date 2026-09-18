@@ -262,7 +262,7 @@ class _FolderPageState extends State<FolderPage> {
 
     final card = Card(
       key: ValueKey(item.id),
-      margin: const EdgeInsets.only(bottom: 10),
+      margin: const EdgeInsets.only(bottom: kListRowSpacing),
       color: selected ? AppColors.primaryLight : Colors.white,
       clipBehavior: Clip.antiAlias,
       child: ListTile(

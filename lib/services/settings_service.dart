@@ -30,7 +30,8 @@ class TabConfig {
   const TabConfig({required this.visibleIds, required this.defaultTabId});
 
   static const defaultConfig = TabConfig(
-    visibleIds: ['password', 'apikey', 'search', 'settings'],
+    // 仅用于没有保存过底栏配置的首次启动；已有用户继续沿用自己的显隐与顺序。
+    visibleIds: ['password', 'search', 'settings'],
     defaultTabId: 'password',
   );
 

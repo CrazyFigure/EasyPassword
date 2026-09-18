@@ -111,13 +111,15 @@ class _BottomNavBar extends StatelessWidget {
   Widget build(BuildContext context) {
     if (tabs.isEmpty) return const SizedBox.shrink();
     return Container(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+      // 压缩三层纵向留白，使底栏在 Windows 与 Android 上都更轻巧，
+      // 同时保留足够的点击区域。
+      padding: const EdgeInsets.fromLTRB(12, 5, 12, 5),
       decoration: const BoxDecoration(
         color: Colors.white,
         border: Border(top: BorderSide(color: AppColors.border)),
       ),
       child: Container(
-        padding: const EdgeInsets.all(4),
+        padding: const EdgeInsets.all(3),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(30),
@@ -158,7 +160,7 @@ class _NavItem extends StatelessWidget {
       borderRadius: BorderRadius.circular(24),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(vertical: 10),
+        padding: const EdgeInsets.symmetric(vertical: 7),
         decoration: BoxDecoration(
           color: active ? AppColors.primary : Colors.transparent,
           borderRadius: BorderRadius.circular(24),

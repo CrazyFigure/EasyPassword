@@ -439,7 +439,7 @@ class ItemListViewState extends State<ItemListView> {
 
     final card = Card(
       key: ValueKey(entryKey),
-      margin: const EdgeInsets.only(bottom: 10),
+      margin: const EdgeInsets.only(bottom: kListRowSpacing),
       color: selected ? AppColors.primaryLight : Colors.white,
       clipBehavior: Clip.antiAlias,
       child: ListTile(
@@ -555,7 +555,7 @@ class _FolderCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Card(
-      margin: const EdgeInsets.only(bottom: 10),
+      margin: const EdgeInsets.only(bottom: kListRowSpacing),
       color: Colors.white,
       clipBehavior: Clip.antiAlias,
       child: Opacity(
