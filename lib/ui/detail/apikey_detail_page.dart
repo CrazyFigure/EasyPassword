@@ -151,7 +151,7 @@ class _ApiKeyDetailPageState extends State<ApiKeyDetailPage> {
                 if (_adding)
                   InlineEditForm(
                     title: '添加用户',
-                    // 用户名与平台密码允许只填其一，但不能都为空
+                    // 用户名与密码允许只填其一，但不能都为空
                     requireAnyOf: const {'username', 'password'},
                     fields: const [
                       InlineField(
@@ -161,7 +161,7 @@ class _ApiKeyDetailPageState extends State<ApiKeyDetailPage> {
                       ),
                       InlineField(
                         key: 'password',
-                        label: '平台密码',
+                        label: '密码',
                         hint: '请输入密码',
                         obscure: true,
                       ),
@@ -289,7 +289,7 @@ class _ApiKeyDetailPageState extends State<ApiKeyDetailPage> {
   }
 }
 
-/// 用户卡片：用户名 + 平台密码 + 多套 API Key（可拖动排序 + 就地编辑）
+/// 用户卡片：用户名 + 密码 + 多套 API Key（可拖动排序 + 就地编辑）
 class _UserCard extends StatefulWidget {
   final int index; // 列表下标，供拖动把手使用
   final Account account;
@@ -323,27 +323,27 @@ class _UserCardState extends State<_UserCard> {
   @override
   void initState() {
     super.initState();
-    // 进入时若父级已开启"显示全部"，平台密码同步为可见
+    // 进入时若父级已开启"显示全部"，密码同步为可见
     _pwdRevealed = widget.showAll;
   }
 
   @override
   void didUpdateWidget(covariant _UserCard oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // 平台密码密文变化时废弃旧明文，避免后续编辑把旧密码重新写回。
+    // 密码密文变化时废弃旧明文，避免后续编辑把旧密码重新写回。
     if (widget.account.passwordEnc != oldWidget.account.passwordEnc) {
       _plainPwd = null;
       _plainPwdLength = null;
       _ensurePlainPwd();
     }
-    // 父级"显示全部"变化时，平台密码整体跟随（之后单条按钮仍可独立切换）
+    // 父级"显示全部"变化时，密码整体跟随（之后单条按钮仍可独立切换）
     if (widget.showAll != oldWidget.showAll) {
       _pwdRevealed = widget.showAll;
       if (_pwdRevealed) _ensurePlainPwd();
     }
   }
 
-  /// 按需解密平台密码，解密完成后刷新
+  /// 按需解密密码，解密完成后刷新
   Future<void> _ensurePlainPwd() async {
     if (_plainPwd != null) return;
     // 只接收当前账号版本的解密结果，忽略刷新前发起的旧请求。
@@ -386,7 +386,7 @@ class _UserCardState extends State<_UserCard> {
     if (_editing) {
       return InlineEditForm(
         title: '编辑用户',
-        // 用户名与平台密码允许只填其一，但不能都为空
+        // 用户名与密码允许只填其一，但不能都为空
         requireAnyOf: const {'username', 'password'},
         fields: [
           InlineField(
@@ -396,7 +396,7 @@ class _UserCardState extends State<_UserCard> {
           ),
           InlineField(
             key: 'password',
-            label: '平台密码',
+            label: '密码',
             obscure: true,
             // 解密在打开表单前完成，避免异步初值覆盖用户的粘贴或清空操作。
             initial: _plainPwd ?? '',
@@ -465,24 +465,22 @@ class _UserCardState extends State<_UserCard> {
             ),
           ]),
           const SizedBox(height: 4),
-          // 用户名与平台密码同为字段行：标签线、值线、操作列三者对齐（定宽以最长4字「平台密码」为准）
+          // 用户名与密码同为字段行：标签线、值线、操作列三者对齐（最长3字统一对齐）
           DetailFieldRow(
             label: '用户名',
-            labelChars: 4,
             value: widget.account.username,
             copyLabel: '用户名',
             onCopy: () async => widget.account.username,
           ),
           DetailFieldRow(
-            label: '平台密码',
-            labelChars: 4,
+            label: '密码',
             value:
                 _pwdRevealed ? (_plainPwd ?? '') : '*' * (_plainPwdLength ?? 0),
             pending: _plainPwd == null,
             obscurable: true,
             revealed: _pwdRevealed,
             onToggle: _togglePwd,
-            copyLabel: '平台密码',
+            copyLabel: '密码',
             onCopy: () async {
               final state = context.read<AppState>();
               return _plainPwd ??
@@ -493,7 +491,6 @@ class _UserCardState extends State<_UserCard> {
           if (widget.account.note.isNotEmpty)
             DetailFieldRow(
               label: '备注',
-              labelChars: 4,
               value: widget.account.note,
               copyLabel: '备注',
               onCopy: () async => widget.account.note,
@@ -578,7 +575,7 @@ class _UserCardState extends State<_UserCard> {
     if (mounted) setState(() => _pwdRevealed = !_pwdRevealed);
   }
 
-  /// 先准备好平台密码再进入编辑态，表单展示后不再发生异步回填。
+  /// 先准备好密码再进入编辑态，表单展示后不再发生异步回填。
   Future<void> _startEditing() async {
     await _ensurePlainPwd();
     if (mounted) setState(() => _editing = true);

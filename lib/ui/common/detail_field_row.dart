@@ -18,14 +18,14 @@ const double _kCompactWidth = 420;
 /// 标签文字字号，与下方 Text 的样式保持同一个值
 const double _kLabelFontSize = 12;
 
-/// 标签列宽度：默认以最长常见标签三个汉字为准（API Key 页面平台密码可传 4 字），
+/// 标签列宽度：默认以最长常见标签三个汉字为准（如「用户名」），
 /// 保证同卡片内各行的值从同一竖向位置开始。
 ///
 /// 这里按字号实际算宽而不是写死像素：一是窄屏下减少多余留白直接还给值文本；
 /// 二是用户调大系统字号后可自适应缩放。
 double fieldLabelWidth(BuildContext context, [int chars = 3]) {
   final scaled = MediaQuery.textScalerOf(context).scale(_kLabelFontSize);
-  // 汉字宽度约等于字号，四字或三字之后留 4px 呼吸位，为正文腾出最大空间
+  // 汉字宽度约等于字号，字后留 4px 呼吸位，为正文腾出最大空间
   return scaled * chars + 4;
 }
 

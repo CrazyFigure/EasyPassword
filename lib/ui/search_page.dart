@@ -9,6 +9,7 @@ import '../core/constants.dart';
 import 'common/app_toast.dart';
 import '../services/search_service.dart';
 import '../state/app_state.dart';
+import 'common/site_color.dart';
 import 'detail/apikey_detail_page.dart';
 import 'detail/password_detail_page.dart';
 import 'folder_page.dart';
@@ -173,78 +174,311 @@ class _SearchPageState extends State<SearchPage> {
       itemCount: _results.length,
       itemBuilder: (context, index) {
         final r = _results[index];
-        return Card(
-          margin: const EdgeInsets.only(bottom: 10),
-          child: ListTile(
-            leading: Container(
-              width: 40,
-              height: 40,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: r.itemType == ItemType.apikey
-                    ? AppColors.openai
-                    : AppColors.primary,
-                borderRadius: BorderRadius.circular(10),
-              ),
+        return _buildResultCard(r);
+      },
+    );
+  }
+
+  /// 构建搜索结果卡片：
+  /// 将类型标签与箭头移入 title 行，避免 ListTile.trailing 垂直霸占整列空间，
+  /// 从而彻底释放右下角红框区域供 subtitle 展开；
+  /// 同时保留 ListTile 结构与完整的目录、网址、用户名、密码、备注等上下文信息。
+  Widget _buildResultCard(SearchResult r) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      color: Colors.white,
+      clipBehavior: Clip.antiAlias,
+      child: ListTile(
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        leading: Container(
+          width: 40,
+          height: 40,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: siteColorFor(r.title),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Text(
+            siteInitialFor(r.title),
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+        // 标题行包含标题、类型标签与箭头；
+        // 将类型标签与箭头移入本行，使得 trailing 为 null，
+        // 彻底消除原本在右侧整列的宽度占位，红框区域被下方内容充分利用。
+        title: Row(
+          children: [
+            Expanded(
               child: Text(
-                r.title.isNotEmpty ? r.title[0].toUpperCase() : '?',
+                r.title,
                 style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700),
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textMain,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
             ),
-            title: Text(r.title,
-                style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.textMain)),
-            // 文件夹内结果增加独立目录行，不与命中摘要争抢同一行空间。
-            subtitle: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '${r.hitField}：${r.subtitle}',
+            const SizedBox(width: 8),
+            _typeTag(r.itemType),
+            const SizedBox(width: 2),
+            const Tooltip(
+              message: '查看详情',
+              waitDuration: Duration(milliseconds: 100),
+              child: Icon(
+                Icons.chevron_right,
+                size: 18,
+                color: AppColors.textFaint,
+              ),
+            ),
+          ],
+        ),
+        subtitle: _buildSubtitle(r),
+        isThreeLine: true,
+        onTap: () => _jumpTo(r),
+      ),
+    );
+  }
+
+  /// 构建卡片详细内容与位置上下文（利用无 trailing 的全宽展开展示）
+  Widget _buildSubtitle(SearchResult r) {
+    final folderText = r.folderName != null ? r.folderName! : '根目录';
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 4),
+        // 1) 命中定位指示条：明确标识命中位置与具体匹配值，避免原先「名称：」后空白的问题
+        _buildHitBadge(r),
+
+        // 2) 目录/文件夹位置：无论在文件夹内还是根目录，均明确展示所在位置（使用深色字体，清晰突出）
+        Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: Row(
+            children: [
+              const Icon(Icons.folder_outlined,
+                  size: 13, color: AppColors.textSecondary),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Text(
+                  '目录：$folderText',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style:
-                      const TextStyle(fontSize: 12, color: AppColors.textWeak),
+                  style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                      color: AppColors.textMain),
                 ),
-                if (r.folderName != null) ...[
-                  const SizedBox(height: 2),
-                  Row(
-                    children: [
-                      const Icon(Icons.folder_outlined,
-                          size: 13, color: AppColors.textWeak),
-                      const SizedBox(width: 4),
-                      Expanded(
-                        child: Text(
-                          '目录：${r.folderName}',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                              fontSize: 12, color: AppColors.textWeak),
-                        ),
-                      ),
-                    ],
+              ),
+            ],
+          ),
+        ),
+
+        // 3) 网址（如果有）
+        if (r.url.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Row(
+              children: [
+                const Icon(Icons.language_outlined,
+                    size: 13, color: AppColors.textWeak),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    '网址：${r.url}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        fontSize: 12, color: AppColors.textSecondary),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+        // 4) 用户名（如果有）
+        if (r.username != null && r.username!.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Row(
+              children: [
+                const Icon(Icons.person_outline_rounded,
+                    size: 13, color: AppColors.textWeak),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    '用户名：${r.username}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        fontSize: 12, color: AppColors.textSecondary),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+        // 5) 密码（仅在命中密码时展示，保证敏感信息安全合规）
+        if (r.hitField == '密码' &&
+            (r.password != null || r.hitValue.isNotEmpty))
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Row(
+              children: [
+                const Icon(Icons.lock_outline_rounded,
+                    size: 13, color: AppColors.textWeak),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    '密码：${r.password ?? r.hitValue}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        fontSize: 12, color: AppColors.textSecondary),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+        // 6) 用户级备注（若未在命中行展示，则作为上下文展示）
+        if (r.accountNote != null &&
+            r.accountNote!.isNotEmpty &&
+            r.hitField != '用户级备注')
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Row(
+              children: [
+                const Icon(Icons.chat_bubble_outline_rounded,
+                    size: 13, color: AppColors.textWeak),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    '用户备注：${r.accountNote}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        fontSize: 12, color: AppColors.textSecondary),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+        // 7) 网站级备注（若未在命中行展示，则作为上下文展示）
+        if (r.siteNote.isNotEmpty && r.hitField != '网站级备注')
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Row(
+              children: [
+                const Icon(Icons.notes_rounded,
+                    size: 13, color: AppColors.textWeak),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    '网站备注：${r.siteNote}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        fontSize: 12, color: AppColors.textSecondary),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+        // 8) API Key 分区专属字段
+        if (r.itemType == ItemType.apikey) ...[
+          if (r.hitField == 'API Key' &&
+              (r.apiKey != null || r.hitValue.isNotEmpty))
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Row(
+                children: [
+                  const Icon(Icons.key_outlined,
+                      size: 13, color: AppColors.textWeak),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      'API Key：${r.apiKey ?? r.hitValue}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          fontSize: 12, color: AppColors.textSecondary),
+                    ),
                   ),
                 ],
-              ],
+              ),
             ),
-            isThreeLine: r.folderName != null,
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _typeTag(r.itemType),
-                const Icon(Icons.chevron_right,
-                    size: 18, color: AppColors.textFaint),
-              ],
+          if (r.apiKeyNote != null &&
+              r.apiKeyNote!.isNotEmpty &&
+              r.hitField != 'API Key 备注')
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Row(
+                children: [
+                  const Icon(Icons.label_outline_rounded,
+                      size: 13, color: AppColors.textWeak),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      'Key备注：${r.apiKeyNote}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          fontSize: 12, color: AppColors.textSecondary),
+                    ),
+                  ),
+                ],
+              ),
             ),
-            onTap: () => _jumpTo(r),
+        ],
+      ],
+    );
+  }
+
+  /// 构建命中高亮指示条：清晰展示命中的字段与匹配内容
+  Widget _buildHitBadge(SearchResult r) {
+    final String fieldName = r.hitField == '名称' ? '条目名称' : r.hitField;
+    // 提取具体匹配内容，确保命中名称、网址、备注、账号或Key均完整展示匹配值
+    final String value = r.hitField == '名称'
+        ? r.title
+        : (r.hitValue.isNotEmpty ? r.hitValue : r.subtitle);
+    final String label = '匹配$fieldName：$value';
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: AppColors.primaryLight.withValues(alpha: 0.45),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.gps_fixed_rounded,
+              size: 12, color: AppColors.primary),
+          const SizedBox(width: 5),
+          Expanded(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                color: AppColors.primaryDark,
+              ),
+            ),
           ),
-        );
-      },
+        ],
+      ),
     );
   }
 

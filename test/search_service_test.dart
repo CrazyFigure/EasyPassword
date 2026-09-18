@@ -87,4 +87,44 @@ void main() {
     expect(inFolder.single.folderName, '工作账号');
     expect(atRoot.single.folderName, isNull);
   });
+
+  test('搜索网址并返回完整上下文信息', () async {
+    final folder = await data.addFolder('password', '开发资源');
+    final item = await data.addItem(
+      'password',
+      'GitHub',
+      url: 'https://github.com/my-repo',
+      siteNote: '主要代码仓库',
+      folderId: folder.id,
+    );
+    await data.addAccount(item.id, 'octocat', 'CatSecret123',
+        note: '个人主号');
+
+    // 1) 搜索网址
+    final byUrl = await search.search('github.com/my-repo');
+    expect(byUrl, isNotEmpty);
+    final rUrl = byUrl.first;
+    expect(rUrl.hitField, '网址');
+    expect(rUrl.hitValue, 'https://github.com/my-repo');
+    expect(rUrl.folderName, '开发资源');
+    expect(rUrl.username, 'octocat'); // 携带关联账号预览
+
+    // 2) 搜索用户级备注
+    final byAccNote = await search.search('个人主号');
+    expect(byAccNote, isNotEmpty);
+    final rNote = byAccNote.first;
+    expect(rNote.hitField, '用户级备注');
+    expect(rNote.hitValue, '个人主号');
+    expect(rNote.username, 'octocat');
+    expect(rNote.folderName, '开发资源');
+
+    // 3) 搜索密码
+    final byPwd = await search.search('CatSecret123');
+    expect(byPwd, isNotEmpty);
+    final rPwd = byPwd.first;
+    expect(rPwd.hitField, '密码');
+    expect(rPwd.hitValue, 'CatSecret123');
+    expect(rPwd.password, 'CatSecret123');
+    expect(rPwd.username, 'octocat');
+  });
 }
