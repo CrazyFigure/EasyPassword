@@ -31,11 +31,11 @@ double _left(WidgetTester tester, String text) =>
 
 void main() {
   testWidgets('各字段的值从同一竖向位置开始，标签长短不影响对齐', (tester) async {
-    // 同一卡片内指定相同标签字数定宽时，「用户名」三字与「平台密码」四字值仍需左对齐
+    // 同一卡片内默认标签字数定宽时，「用户名」三字与「密码」两字值仍需左对齐
     await _pumpRows(tester, const [
-      DetailFieldRow(label: '用户名', labelChars: 4, value: 'alice@example.com'),
-      DetailFieldRow(label: '平台密码', labelChars: 4, value: '******'),
-      DetailFieldRow(label: '备注', labelChars: 4, value: '工作账号'),
+      DetailFieldRow(label: '用户名', value: 'alice@example.com'),
+      DetailFieldRow(label: '密码', value: '******'),
+      DetailFieldRow(label: '备注', value: '工作账号'),
     ]);
 
     final valueLefts = [
@@ -50,7 +50,7 @@ void main() {
     // 标签本身也应左对齐于同一条线
     final labelLefts = [
       _left(tester, '用户名'),
-      _left(tester, '平台密码'),
+      _left(tester, '密码'),
       _left(tester, '备注'),
     ];
     for (final x in labelLefts) {
@@ -125,7 +125,7 @@ void main() {
     await _pumpRows(tester, [
       const DetailFieldRow(label: '用户名', value: ''),
       DetailFieldRow(
-        label: '平台密码',
+        label: '密码',
         value: '****',
         obscurable: true,
         onToggle: () {},
@@ -166,7 +166,7 @@ void main() {
       tester,
       [
         DetailFieldRow(
-          label: '平台密码',
+          label: '密码',
           value: 'a-fairly-long-secret-value-1234567890',
           obscurable: true,
           onToggle: () {},
@@ -248,7 +248,7 @@ void main() {
     expect(_left(tester, '用户名'), equals(0.0));
   });
 
-  testWidgets('密码详情页默认3字标签定宽使正文起点更靠左，释放更多横向空间', (tester) async {
+  testWidgets('详情页统一3字标签定宽比旧4字定宽更靠左，释放更多横向空间', (tester) async {
     // 3字标签（密码页默认）
     await _pumpRows(
       tester,
