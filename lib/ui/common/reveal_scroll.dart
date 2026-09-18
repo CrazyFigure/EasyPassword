@@ -18,6 +18,10 @@ const Curve _kRevealCurve = Curves.easeOutCubic;
 /// 两处一旦写岔，定位就会偏移半屏。
 const EdgeInsets kListPadding = EdgeInsets.fromLTRB(16, 4, 16, 80);
 
+/// 主列表与文件夹内列表的卡片间距。桌面端和移动端共用较紧凑的节奏，
+/// 避免多层级列表在小屏上一屏只能展示过少内容。
+const double kListRowSpacing = 6;
+
 /// 把 [controller] 控制的列表滚动到第 [index] 行，尽量让该行居中。
 ///
 /// 不引入 scrollable_positioned_list：本项目列表行结构完全统一（头像 +
