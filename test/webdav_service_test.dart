@@ -1,5 +1,8 @@
-/// WebDAV 同步快照与合并单元测试（本地逻辑，不依赖网络）
+/// WebDAV 同步快照与合并单元测试（本地逻辑，不依赖外部网络）
 library;
+
+import 'dart:convert';
+import 'dart:io';
 
 import 'package:easypassword/services/crypto_service.dart';
 import 'package:easypassword/services/data_service.dart';
@@ -231,6 +234,75 @@ void main() {
     expect(await DatabaseService.hasPendingSyncChanges(), isTrue);
   });
 
+  test('自动同步会分别提示 API Key 的新增、修改与删除', () async {
+    final server = await _MemoryWebDavServer.start();
+    addTearDown(server.close);
+    final item = await data.addItem('apikey', 'OpenAI');
+    final account = await data.addAccount(item.id, 'tester', 'password');
+    await data.addApiKey(account.id, 'sk-original');
+
+    // 先保存远端基线，再只改动 API Key 子表，验证提示不会误报无变更。
+    server.snapshot = await webdav.buildSnapshot(
+      baseUrl: server.baseUrl,
+      username: 'user',
+      password: 'pass',
+    );
+    final addedKey = await data.addApiKey(account.id, 'sk-added');
+    var stats = await webdav.syncAll(server.baseUrl, 'user', 'pass');
+    expect(stats.toSummaryMessage(), '同步完成：远端推送新增 1 个 API Key');
+
+    final db = await DatabaseService.db;
+    final addedRow = (await db.query(
+      'api_keys',
+      where: 'id = ?',
+      whereArgs: [addedKey.id],
+    )).single;
+    await db.update(
+      'api_keys',
+      {
+        'key_enc': await crypto.encrypt('sk-updated'),
+        'updated_at': (addedRow['updated_at'] as int) + 1,
+      },
+      where: 'id = ?',
+      whereArgs: [addedKey.id],
+    );
+    stats = await webdav.syncAll(server.baseUrl, 'user', 'pass');
+    expect(stats.toSummaryMessage(), '同步完成：远端推送修改 1 个 API Key');
+
+    final updatedRow = (await db.query(
+      'api_keys',
+      where: 'id = ?',
+      whereArgs: [addedKey.id],
+    )).single;
+    await db.update(
+      'api_keys',
+      {'deleted': 1, 'updated_at': (updatedRow['updated_at'] as int) + 1},
+      where: 'id = ?',
+      whereArgs: [addedKey.id],
+    );
+    stats = await webdav.syncAll(server.baseUrl, 'user', 'pass');
+    expect(stats.toSummaryMessage(), '同步完成：远端推送删除 1 个 API Key');
+  });
+
+  test('仅同步设置变化时会提示设置修改', () async {
+    final server = await _MemoryWebDavServer.start();
+    addTearDown(server.close);
+    const settingKey = 'font_scale';
+    const initialTime = 1000;
+    await DatabaseService.setSetting(settingKey, '1.0', updatedAt: initialTime);
+    server.snapshot = await webdav.buildSnapshot(
+      baseUrl: server.baseUrl,
+      username: 'user',
+      password: 'pass',
+    );
+
+    // 设置原本没有进入差量统计，单独变化时也会误报“无数据变更”。
+    await DatabaseService.setSetting(settingKey, '1.2', updatedAt: 2000);
+    final stats = await webdav.syncAll(server.baseUrl, 'user', 'pass');
+
+    expect(stats.toSummaryMessage(), '同步完成：远端推送修改 1 项设置');
+  });
+
   test('升级后首次解锁会迁移旧 PIN 密钥字段且不破坏设备密钥字段', () async {
     await DatabaseService.setSetting('device_key', deviceKey);
     final appLock = AppLockService(crypto);
@@ -261,4 +333,57 @@ void main() {
     expect(await crypto.decrypt(legacySnapshotCipher), 'legacy-snapshot');
     expect(await DatabaseService.getSetting('data_key_decoupled'), '1');
   });
+}
+
+/// 内存 WebDAV 服务器：覆盖同步所需的 PROPFIND、GET 与 PUT，避免测试依赖
+/// 外部网络，并保留每次推送后的快照供下一轮增量比较。
+class _MemoryWebDavServer {
+  final HttpServer _server;
+  String? snapshot;
+  var _etagVersion = 1;
+
+  _MemoryWebDavServer._(this._server) {
+    _server.listen(_handleRequest);
+  }
+
+  String get baseUrl => 'http://127.0.0.1:${_server.port}/dav/';
+
+  static Future<_MemoryWebDavServer> start() async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    return _MemoryWebDavServer._(server);
+  }
+
+  Future<void> _handleRequest(HttpRequest request) async {
+    try {
+      // 每个请求完成后立即断开，避免测试进程等待 HTTP keep-alive 超时。
+      request.response.persistentConnection = false;
+      switch (request.method) {
+        case 'PROPFIND':
+          request.response.statusCode = HttpStatus.multiStatus;
+          break;
+        case 'GET':
+          final body = snapshot;
+          if (body == null) {
+            request.response.statusCode = HttpStatus.notFound;
+          } else {
+            request.response.statusCode = HttpStatus.ok;
+            request.response.headers.set('etag', '"v$_etagVersion"');
+            request.response.write(body);
+          }
+          break;
+        case 'PUT':
+          snapshot = await utf8.decoder.bind(request).join();
+          _etagVersion++;
+          request.response.statusCode = HttpStatus.created;
+          break;
+        default:
+          request.response.statusCode = HttpStatus.methodNotAllowed;
+          break;
+      }
+    } finally {
+      await request.response.close();
+    }
+  }
+
+  Future<void> close() => _server.close(force: true);
 }

@@ -775,30 +775,23 @@ class WebDavService {
         await DatabaseService.clearSyncJournalThrough(highWaterMark);
 
         // 2. 计算本地拉取差量（localRowsBefore -> mergedRowsAfter）
-        final localDiff =
-            _computeSnapshotDiff(localRowsBefore, mergedRowsAfter);
+        final localDiff = _computeSnapshotDiff(
+          localRowsBefore,
+          mergedRowsAfter,
+        );
 
         // 3. 计算远端推送差量（remoteRowsBefore -> mergedRowsAfter）
-        final _DiffResult remoteDiff;
-        if (remoteRowsBefore == null) {
-          remoteDiff = _DiffResult(
-            added: _countActiveItems(mergedRowsAfter),
-            updated: 0,
-            deleted: 0,
-          );
-        } else {
-          remoteDiff =
-              _computeSnapshotDiff(remoteRowsBefore, mergedRowsAfter);
-        }
+        // 远端首次创建快照时同样按实体逐项统计，避免只统计顶层条目、
+        // 漏掉用户、API Key 与设置。
+        final remoteDiff = _computeSnapshotDiff(
+          remoteRowsBefore ?? const <String, List<Map<String, dynamic>>>{},
+          mergedRowsAfter,
+        );
 
-        return SyncStats(
+        return SyncStats._detailed(
           mode: WebDavSyncMode.automatic,
-          localAdded: localDiff.added,
-          localUpdated: localDiff.updated,
-          localDeleted: localDiff.deleted,
-          remoteAdded: remoteDiff.added,
-          remoteUpdated: remoteDiff.updated,
-          remoteDeleted: remoteDiff.deleted,
+          localDiff: localDiff,
+          remoteDiff: remoteDiff,
         );
       } on _RemoteChangedException {
         if (attempt == 2) {
@@ -811,190 +804,118 @@ class WebDavService {
 
   // ================= 差量对比辅助方法 =================
 
-  /// 计算两个快照版本之间顶层条目与文件夹的增删改差量
+  /// 计算两个快照版本之间各类同步实体的增删改差量。
+  ///
+  /// API Key 只保存 account_id，并不直接保存 item_id；旧实现尝试按 item_id
+  /// 将它归到网站，导致 API Key 单独增删改时统计为零。这里直接逐表比较，
+  /// 同时把账号与设置纳入摘要，确保“确实同步但提示无变更”的情况不再出现。
   static _DiffResult _computeSnapshotDiff(
     Map<String, List<Map<String, dynamic>>> fromRows,
     Map<String, List<Map<String, dynamic>>> toRows,
   ) {
+    return _DiffResult(
+      folders: _computeTableDiff(fromRows['folders'], toRows['folders'], const [
+        'name',
+        'type',
+        'color',
+        'sort_order',
+      ]),
+      items: _computeTableDiff(
+        fromRows['password_items'],
+        toRows['password_items'],
+        const ['name', 'type', 'url', 'site_note', 'folder_id', 'sort_order'],
+      ),
+      accounts: _computeTableDiff(
+        fromRows['accounts'],
+        toRows['accounts'],
+        const [
+          'item_id',
+          'username',
+          'password_plain',
+          'password_enc',
+          'note',
+          'sort_order',
+        ],
+      ),
+      apiKeys: _computeTableDiff(
+        fromRows['api_keys'],
+        toRows['api_keys'],
+        const ['account_id', 'key_plain', 'key_enc', 'note', 'sort_order'],
+      ),
+      settings: _computeTableDiff(
+        fromRows['settings'],
+        toRows['settings'],
+        const ['value'],
+        keyColumn: 'key',
+        hasDeletedFlag: false,
+      ),
+    );
+  }
+
+  /// 逐行比较单张同步表。软删除恢复按新增计数，墓碑按删除计数；设置表
+  /// 没有 deleted 字段，因此通过 [hasDeletedFlag] 关闭墓碑语义。
+  static _EntityDiff _computeTableDiff(
+    List<Map<String, dynamic>>? fromList,
+    List<Map<String, dynamic>>? toList,
+    List<String> checkFields, {
+    String keyColumn = 'id',
+    bool hasDeletedFlag = true,
+  }) {
+    final fromRows = {
+      for (final row in fromList ?? const <Map<String, dynamic>>[])
+        if ((row[keyColumn]?.toString() ?? '').isNotEmpty)
+          row[keyColumn].toString(): row,
+    };
+    final toRows = {
+      for (final row in toList ?? const <Map<String, dynamic>>[])
+        if ((row[keyColumn]?.toString() ?? '').isNotEmpty)
+          row[keyColumn].toString(): row,
+    };
     var added = 0;
     var updated = 0;
     var deleted = 0;
 
-    // 1. 对比 folders
-    final fromFolders = {
-      for (final f in fromRows['folders'] ?? <Map<String, dynamic>>[])
-        f['id']?.toString(): f
-    };
-    final toFolders = {
-      for (final f in toRows['folders'] ?? <Map<String, dynamic>>[])
-        f['id']?.toString(): f
-    };
-
-    for (final entry in toFolders.entries) {
-      final id = entry.key;
-      if (id == null || id.isEmpty) continue;
+    for (final entry in toRows.entries) {
       final toRow = entry.value;
-      final fromRow = fromFolders[id];
-      final toDeleted = toRow['deleted'] == 1;
-
+      final fromRow = fromRows[entry.key];
+      final toDeleted = hasDeletedFlag && toRow['deleted'] == 1;
       if (fromRow == null) {
         if (!toDeleted) added++;
-      } else {
-        final fromDeleted = fromRow['deleted'] == 1;
-        if (!fromDeleted && toDeleted) {
-          deleted++;
-        } else if (fromDeleted && !toDeleted) {
-          added++;
-        } else if (!fromDeleted && !toDeleted) {
-          if (toRow['name'] != fromRow['name'] ||
-              toRow['type'] != fromRow['type'] ||
-              toRow['sort_order'] != fromRow['sort_order']) {
-            updated++;
-          }
-        }
+        continue;
       }
-    }
 
-    for (final entry in fromFolders.entries) {
-      final id = entry.key;
-      if (id != null &&
-          !toFolders.containsKey(id) &&
-          entry.value['deleted'] != 1) {
+      final fromDeleted = hasDeletedFlag && fromRow['deleted'] == 1;
+      if (!fromDeleted && toDeleted) {
         deleted++;
+      } else if (fromDeleted && !toDeleted) {
+        added++;
+      } else if (!fromDeleted &&
+          !toDeleted &&
+          _hasFieldChanges(fromRow, toRow, checkFields)) {
+        updated++;
       }
     }
 
-    // 2. 对比 password_items 及其子表 accounts / api_keys
-    final fromAccountsByItem = <String, List<Map<String, dynamic>>>{};
-    for (final acc in fromRows['accounts'] ?? <Map<String, dynamic>>[]) {
-      final itemId = acc['item_id']?.toString();
-      if (itemId != null) {
-        (fromAccountsByItem[itemId] ??= []).add(acc);
-      }
+    for (final entry in fromRows.entries) {
+      final wasDeleted = hasDeletedFlag && entry.value['deleted'] == 1;
+      if (!wasDeleted && !toRows.containsKey(entry.key)) deleted++;
     }
-    final toAccountsByItem = <String, List<Map<String, dynamic>>>{};
-    for (final acc in toRows['accounts'] ?? <Map<String, dynamic>>[]) {
-      final itemId = acc['item_id']?.toString();
-      if (itemId != null) {
-        (toAccountsByItem[itemId] ??= []).add(acc);
-      }
-    }
-
-    final fromApiKeysByItem = <String, List<Map<String, dynamic>>>{};
-    for (final key in fromRows['api_keys'] ?? <Map<String, dynamic>>[]) {
-      final itemId = key['item_id']?.toString();
-      if (itemId != null) {
-        (fromApiKeysByItem[itemId] ??= []).add(key);
-      }
-    }
-    final toApiKeysByItem = <String, List<Map<String, dynamic>>>{};
-    for (final key in toRows['api_keys'] ?? <Map<String, dynamic>>[]) {
-      final itemId = key['item_id']?.toString();
-      if (itemId != null) {
-        (toApiKeysByItem[itemId] ??= []).add(key);
-      }
-    }
-
-    final fromItems = {
-      for (final i in fromRows['password_items'] ?? <Map<String, dynamic>>[])
-        i['id']?.toString(): i
-    };
-    final toItems = {
-      for (final i in toRows['password_items'] ?? <Map<String, dynamic>>[])
-        i['id']?.toString(): i
-    };
-
-    for (final entry in toItems.entries) {
-      final id = entry.key;
-      if (id == null || id.isEmpty) continue;
-      final toRow = entry.value;
-      final fromRow = fromItems[id];
-      final toDeleted = toRow['deleted'] == 1;
-
-      if (fromRow == null) {
-        if (!toDeleted) added++;
-      } else {
-        final fromDeleted = fromRow['deleted'] == 1;
-        if (!fromDeleted && toDeleted) {
-          deleted++;
-        } else if (fromDeleted && !toDeleted) {
-          added++;
-        } else if (!fromDeleted && !toDeleted) {
-          // 比较主表与子表字段
-          final itemChanged = toRow['name'] != fromRow['name'] ||
-              toRow['type'] != fromRow['type'] ||
-              toRow['url'] != fromRow['url'] ||
-              toRow['site_note'] != fromRow['site_note'] ||
-              toRow['folder_id'] != fromRow['folder_id'] ||
-              toRow['sort_order'] != fromRow['sort_order'];
-
-          final accountsChanged = !_areSubRowsEqual(
-            fromAccountsByItem[id] ?? [],
-            toAccountsByItem[id] ?? [],
-            [
-              'username',
-              'password_plain',
-              'password_enc',
-              'note',
-              'deleted',
-              'sort_order'
-            ],
-          );
-
-          final apiKeysChanged = !_areSubRowsEqual(
-            fromApiKeysByItem[id] ?? [],
-            toApiKeysByItem[id] ?? [],
-            [
-              'name',
-              'key_plain',
-              'key_enc',
-              'note',
-              'deleted',
-              'sort_order'
-            ],
-          );
-
-          if (itemChanged || accountsChanged || apiKeysChanged) {
-            updated++;
-          }
-        }
-      }
-    }
-
-    for (final entry in fromItems.entries) {
-      final id = entry.key;
-      if (id != null &&
-          !toItems.containsKey(id) &&
-          entry.value['deleted'] != 1) {
-        deleted++;
-      }
-    }
-
-    return _DiffResult(added: added, updated: updated, deleted: deleted);
+    return _EntityDiff(added: added, updated: updated, deleted: deleted);
   }
 
-  static bool _areSubRowsEqual(
-    List<Map<String, dynamic>> listA,
-    List<Map<String, dynamic>> listB,
+  /// 只比较会影响用户可见内容的业务字段，忽略 updated_at、created_at 等
+  /// 同步元数据，避免把单纯的时间戳差异误报为内容修改。
+  static bool _hasFieldChanges(
+    Map<String, dynamic> fromRow,
+    Map<String, dynamic> toRow,
     List<String> checkFields,
   ) {
-    final mapA = {for (final r in listA) r['id']?.toString(): r};
-    final mapB = {for (final r in listB) r['id']?.toString(): r};
-    if (mapA.length != mapB.length) return false;
-    for (final entry in mapB.entries) {
-      final id = entry.key;
-      final rowB = entry.value;
-      final rowA = mapA[id];
-      if (rowA == null) return false;
-      for (final field in checkFields) {
-        if (rowA.containsKey(field) || rowB.containsKey(field)) {
-          if (rowA[field]?.toString() != rowB[field]?.toString()) {
-            return false;
-          }
-        }
+    for (final field in checkFields) {
+      if (fromRow.containsKey(field) || toRow.containsKey(field)) {
+        if (fromRow[field]?.toString() != toRow[field]?.toString()) return true;
       }
     }
-    return true;
+    return false;
   }
 
   static int _countActiveItems(Map<String, List<Map<String, dynamic>>> rows) {
@@ -1006,17 +927,92 @@ class WebDavService {
   }
 }
 
-/// 内部差量计算结果
-class _DiffResult {
+/// 单类同步实体的增删改计数。
+class _EntityDiff {
   final int added;
   final int updated;
   final int deleted;
 
+  const _EntityDiff({this.added = 0, this.updated = 0, this.deleted = 0});
+
+  bool get hasChanges => added > 0 || updated > 0 || deleted > 0;
+}
+
+/// 内部差量计算结果：分别保留每类实体，供同步提示生成准确摘要。
+class _DiffResult {
+  final _EntityDiff folders;
+  final _EntityDiff items;
+  final _EntityDiff accounts;
+  final _EntityDiff apiKeys;
+  final _EntityDiff settings;
+
   const _DiffResult({
-    this.added = 0,
-    this.updated = 0,
-    this.deleted = 0,
+    this.folders = const _EntityDiff(),
+    this.items = const _EntityDiff(),
+    this.accounts = const _EntityDiff(),
+    this.apiKeys = const _EntityDiff(),
+    this.settings = const _EntityDiff(),
   });
+
+  int get added =>
+      folders.added +
+      items.added +
+      accounts.added +
+      apiKeys.added +
+      settings.added;
+
+  int get updated =>
+      folders.updated +
+      items.updated +
+      accounts.updated +
+      apiKeys.updated +
+      settings.updated;
+
+  int get deleted =>
+      folders.deleted +
+      items.deleted +
+      accounts.deleted +
+      apiKeys.deleted +
+      settings.deleted;
+
+  bool get hasChanges =>
+      folders.hasChanges ||
+      items.hasChanges ||
+      accounts.hasChanges ||
+      apiKeys.hasChanges ||
+      settings.hasChanges;
+
+  /// 按操作类型组织文案，避免同一实体的增删改被拆成重复方向描述。
+  String toSummaryText() {
+    final operations = <String>[];
+    for (final operation in const ['新增', '修改', '删除']) {
+      final entities = <String>[];
+      _addEntityText(entities, operation, folders, '个文件夹');
+      _addEntityText(entities, operation, items, '个条目');
+      _addEntityText(entities, operation, accounts, '个用户');
+      _addEntityText(entities, operation, apiKeys, '个 API Key');
+      _addEntityText(entities, operation, settings, '项设置');
+      if (entities.isNotEmpty) {
+        operations.add('$operation ${entities.join('、')}');
+      }
+    }
+    return operations.join('，');
+  }
+
+  static void _addEntityText(
+    List<String> parts,
+    String operation,
+    _EntityDiff diff,
+    String unit,
+  ) {
+    final count = switch (operation) {
+      '新增' => diff.added,
+      '修改' => diff.updated,
+      '删除' => diff.deleted,
+      _ => 0,
+    };
+    if (count > 0) parts.add('$count $unit');
+  }
 }
 
 /// WebDAV 同步结果统计模型：记录双向增删改明细与全量覆盖条目数
@@ -1035,6 +1031,10 @@ class SyncStats {
   final int? overwriteCount;
   final WebDavSyncMode mode;
 
+  /// 自动同步的分类明细。旧调用方仍可只传汇总计数，保持兼容。
+  final _DiffResult? _localDiff;
+  final _DiffResult? _remoteDiff;
+
   const SyncStats({
     this.localAdded = 0,
     this.localUpdated = 0,
@@ -1044,7 +1044,23 @@ class SyncStats {
     this.remoteDeleted = 0,
     this.overwriteCount,
     required this.mode,
-  });
+  }) : _localDiff = null,
+       _remoteDiff = null;
+
+  /// 自动同步内部使用的明细构造器，汇总字段继续保留，避免破坏既有调用。
+  SyncStats._detailed({
+    required this.mode,
+    required _DiffResult localDiff,
+    required _DiffResult remoteDiff,
+  }) : localAdded = localDiff.added,
+       localUpdated = localDiff.updated,
+       localDeleted = localDiff.deleted,
+       remoteAdded = remoteDiff.added,
+       remoteUpdated = remoteDiff.updated,
+       remoteDeleted = remoteDiff.deleted,
+       overwriteCount = null,
+       _localDiff = localDiff,
+       _remoteDiff = remoteDiff;
 
   /// 是否产生了增量数据变更
   bool get hasChanges =>
@@ -1069,6 +1085,17 @@ class SyncStats {
           return '同步完成：无数据变更';
         }
         final parts = <String>[];
+        if (_localDiff != null || _remoteDiff != null) {
+          if (_localDiff?.hasChanges ?? false) {
+            parts.add('本地拉取${_localDiff!.toSummaryText()}');
+          }
+          if (_remoteDiff?.hasChanges ?? false) {
+            parts.add('远端推送${_remoteDiff!.toSummaryText()}');
+          }
+          return '同步完成：${parts.join('；')}';
+        }
+
+        // 兼容外部按旧汇总字段构造 SyncStats 的场景。
         final localParts = <String>[];
         if (localAdded > 0) localParts.add('新增 $localAdded 条');
         if (localUpdated > 0) localParts.add('修改 $localUpdated 条');
