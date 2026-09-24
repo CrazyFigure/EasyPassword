@@ -44,15 +44,15 @@
     <text class="axis-label" x="54" y="372" text-anchor="end">0</text>
     <text class="axis-label" x="54" y="78" text-anchor="end">1</text>
     <text class="axis-label" x="68" y="410" text-anchor="middle">2026-08-07</text>
-    <text class="axis-label" x="254" y="410" text-anchor="middle">2026-08-18</text>
-    <text class="axis-label" x="440" y="410" text-anchor="middle">2026-08-30</text>
-    <text class="axis-label" x="626" y="410" text-anchor="middle">2026-09-11</text>
-    <text class="axis-label" x="812" y="410" text-anchor="middle">2026-09-23</text>
+    <text class="axis-label" x="254" y="410" text-anchor="middle">2026-08-19</text>
+    <text class="axis-label" x="440" y="410" text-anchor="middle">2026-08-31</text>
+    <text class="axis-label" x="626" y="410" text-anchor="middle">2026-09-12</text>
+    <text class="axis-label" x="812" y="410" text-anchor="middle">2026-09-24</text>
   </g>
-  <path class="area" d="M 68 368 H 83.11 V 368 H 99 V 368 H 114.91 V 368 H 130.63 V 368 H 146.64 V 368 H 162.47 V 368 H 178.25 V 368 H 193.35 V 368 H 209.24 V 368 H 225.04 V 368 H 240.79 V 368 H 256.62 V 368 H 272.41 V 368 H 288.28 V 368 H 303.98 V 368 H 319.88 V 368 H 335.69 V 368 H 351.43 V 368 H 388.75 V 368 H 405.68 V 368 H 418.16 V 368 H 433.22 V 368 H 449.22 V 368 H 464.5 V 368 H 480.05 V 368 H 495.85 V 368 H 511.71 V 368 H 527.41 V 368 H 543.34 V 368 H 559.24 V 368 H 574.94 V 368 H 590.78 V 368 H 606.57 V 368 H 622.39 V 368 H 638.07 V 368 H 654.12 V 368 H 670.02 V 368 H 685.67 V 368 H 701.43 V 368 H 717.26 V 368 H 732.95 V 368 H 748.74 V 368 H 764.81 V 368 H 780.67 V 368 H 796.37 V 368 H 812 V 368 L 812 368 L 68 368 Z" />
-  <path class="line" d="M 68 368 H 83.11 V 368 H 99 V 368 H 114.91 V 368 H 130.63 V 368 H 146.64 V 368 H 162.47 V 368 H 178.25 V 368 H 193.35 V 368 H 209.24 V 368 H 225.04 V 368 H 240.79 V 368 H 256.62 V 368 H 272.41 V 368 H 288.28 V 368 H 303.98 V 368 H 319.88 V 368 H 335.69 V 368 H 351.43 V 368 H 388.75 V 368 H 405.68 V 368 H 418.16 V 368 H 433.22 V 368 H 449.22 V 368 H 464.5 V 368 H 480.05 V 368 H 495.85 V 368 H 511.71 V 368 H 527.41 V 368 H 543.34 V 368 H 559.24 V 368 H 574.94 V 368 H 590.78 V 368 H 606.57 V 368 H 622.39 V 368 H 638.07 V 368 H 654.12 V 368 H 670.02 V 368 H 685.67 V 368 H 701.43 V 368 H 717.26 V 368 H 732.95 V 368 H 748.74 V 368 H 764.81 V 368 H 780.67 V 368 H 796.37 V 368 H 812 V 368" />
+  <path class="area" d="M 68 368 H 82.79 V 368 H 98.35 V 368 H 113.93 V 368 H 129.32 V 368 H 144.99 V 368 H 160.5 V 368 H 175.94 V 368 H 190.73 V 368 H 206.29 V 368 H 221.75 V 368 H 237.17 V 368 H 252.67 V 368 H 268.13 V 368 H 283.66 V 368 H 299.04 V 368 H 314.61 V 368 H 330.09 V 368 H 345.49 V 368 H 382.03 V 368 H 398.62 V 368 H 410.83 V 368 H 425.57 V 368 H 441.24 V 368 H 456.2 V 368 H 471.43 V 368 H 486.89 V 368 H 502.42 V 368 H 517.8 V 368 H 533.39 V 368 H 548.95 V 368 H 564.33 V 368 H 579.83 V 368 H 595.29 V 368 H 610.79 V 368 H 626.13 V 368 H 641.85 V 368 H 657.41 V 368 H 672.74 V 368 H 688.17 V 368 H 703.67 V 368 H 719.03 V 368 H 734.49 V 368 H 750.22 V 368 H 765.75 V 368 H 781.13 V 368 H 796.42 V 368 H 812 V 368 L 812 368 L 68 368 Z" />
+  <path class="line" d="M 68 368 H 82.79 V 368 H 98.35 V 368 H 113.93 V 368 H 129.32 V 368 H 144.99 V 368 H 160.5 V 368 H 175.94 V 368 H 190.73 V 368 H 206.29 V 368 H 221.75 V 368 H 237.17 V 368 H 252.67 V 368 H 268.13 V 368 H 283.66 V 368 H 299.04 V 368 H 314.61 V 368 H 330.09 V 368 H 345.49 V 368 H 382.03 V 368 H 398.62 V 368 H 410.83 V 368 H 425.57 V 368 H 441.24 V 368 H 456.2 V 368 H 471.43 V 368 H 486.89 V 368 H 502.42 V 368 H 517.8 V 368 H 533.39 V 368 H 548.95 V 368 H 564.33 V 368 H 579.83 V 368 H 595.29 V 368 H 610.79 V 368 H 626.13 V 368 H 641.85 V 368 H 657.41 V 368 H 672.74 V 368 H 688.17 V 368 H 703.67 V 368 H 719.03 V 368 H 734.49 V 368 H 750.22 V 368 H 765.75 V 368 H 781.13 V 368 H 796.42 V 368 H 812 V 368" />
   <circle class="dot" cx="812" cy="368" r="6" />
   <rect class="badge" x="682" y="28" width="130" height="34" rx="17" />
   <text class="badge-text" x="747" y="50" text-anchor="middle">0 stars</text>
-  <text class="status" x="812" y="428" text-anchor="end">Observed snapshots: 2026-08-07 – 2026-09-23</text>
+  <text class="status" x="812" y="428" text-anchor="end">Observed snapshots: 2026-08-07 – 2026-09-24</text>
 </svg>
