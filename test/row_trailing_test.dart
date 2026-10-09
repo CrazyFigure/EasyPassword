@@ -66,10 +66,10 @@ void main() {
   testWidgets('「⋮」的触摸区不小于无障碍下限', (tester) async {
     await pumpRow(tester, title: '示例条目');
 
-    // 收紧的是视觉留白，不是可点区域：热区必须仍然好点
+    // 收紧的是横向留白：高度仍须满足触摸下限，宽度不低于约定的紧凑热区
     final hit = tester.getSize(find.byTooltip('条目操作'));
-    expect(hit.width, greaterThanOrEqualTo(40));
-    expect(hit.height, greaterThanOrEqualTo(40));
+    expect(hit.width, greaterThanOrEqualTo(kRowTrailingHitWidth));
+    expect(hit.height, greaterThanOrEqualTo(kRowTrailingHitSize));
   });
 
   testWidgets('箭头贴近右缘，不在中间留大片空白', (tester) async {

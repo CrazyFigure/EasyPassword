@@ -469,6 +469,8 @@ class ItemListViewState extends State<ItemListView> {
         leading: _SiteAvatar(item: item),
         // 右侧收紧：行尾图标本就贴边，默认的 16px 反而把它们往标题挤
         contentPadding: kRowContentPadding,
+        // 收紧标题两侧间距，让网址/备注多显示几个字
+        horizontalTitleGap: kRowTitleGap,
         title: Text(
           item.name,
           style: const TextStyle(
@@ -576,6 +578,8 @@ class _FolderCard extends StatelessWidget {
           ),
           // 与条目行同一套右侧留白，两类行的图标竖向对齐
           contentPadding: kRowContentPadding,
+          // 与条目行同一套标题间距，保证两类行的文字起点对齐
+          horizontalTitleGap: kRowTitleGap,
           title: Text(
             folder.name,
             style: const TextStyle(
