@@ -284,6 +284,8 @@ class _FolderPageState extends State<FolderPage> {
         leading: _SiteAvatar(item: item),
         // 与主列表同一套右侧留白
         contentPadding: kRowContentPadding,
+        // 与主列表同一套标题间距
+        horizontalTitleGap: kRowTitleGap,
         title: Text(
           item.name,
           style: const TextStyle(

@@ -48,6 +48,10 @@ class AppTheme {
       appBarTheme: AppBarTheme(
         backgroundColor: AppColors.background,
         elevation: 0,
+        // 关闭 Material 3 的滚动下沉效果：内容滚到顶栏下方时，
+        // 默认会叠加主题色着色导致顶栏发红，这里保持与页面背景一致
+        scrolledUnderElevation: 0,
+        surfaceTintColor: Colors.transparent,
         centerTitle: false,
         titleTextStyle: TextStyle(
           color: AppColors.textMain,

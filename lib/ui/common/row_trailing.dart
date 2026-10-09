@@ -18,6 +18,14 @@ import '../../core/constants.dart';
 /// 满足触摸目标下限，不因为排版收紧而变得难点。
 const double kRowTrailingHitSize = 40;
 
+/// 「⋮」热区宽度：高度仍保持 [kRowTrailingHitSize] 满足触摸下限，
+/// 横向只比 18px 图标多留少许，把多余留白还给标题与副标题。
+const double kRowTrailingHitWidth = 28;
+
+/// 列表行的标题间距（同时作用于头像→标题、标题→行尾两侧）。
+/// ListTile 默认 16，行尾又有图标自带留白，副标题右侧会空出一整列，这里收紧。
+const double kRowTitleGap = 10;
+
 /// 行尾操作区：左为「⋮」菜单，右为「›」指示箭头。
 ///
 /// [onMenu] 为空时「⋮」不可点（例如批量模式下的文件夹行）。
@@ -50,7 +58,7 @@ class RowTrailing extends StatelessWidget {
             // 8px，热区被缩到 32 而低于触摸目标下限。
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints.tightFor(
-              width: kRowTrailingHitSize,
+              width: kRowTrailingHitWidth,
               height: kRowTrailingHitSize,
             ),
             onPressed:

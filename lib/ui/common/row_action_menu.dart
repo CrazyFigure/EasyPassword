@@ -16,9 +16,10 @@ import '../../core/constants.dart';
 /// 窄屏阈值：低于此宽度按移动端紧凑尺寸排布
 const double _kCompactWidth = 420;
 
-/// 操作插槽宽度。桌面端收紧到 34；窄屏收紧到 30，避免操作列过度压缩正文。
+/// 操作插槽宽度。桌面端收紧到 34；窄屏收紧到 26（16px 图标两侧各留 5px），
+/// 「显示」与「复制」之间不再空出一大截，把横向空间让给正文。
 double actionSlotWidth(BuildContext context) =>
-    MediaQuery.sizeOf(context).width < _kCompactWidth ? 30 : 34;
+    MediaQuery.sizeOf(context).width < _kCompactWidth ? 26 : 34;
 
 /// 操作插槽高度：与紧凑按钮的实际高度一致。
 /// 空插槽或无按钮行需保持同样高度，避免行距忽大忽小。
@@ -115,7 +116,8 @@ class RowActionMenu extends StatelessWidget {
       ],
       child: SizedBox(
         width: actionSlotWidth(context),
-        height: actionSlotWidth(context),
+        // 高度取插槽高度而非宽度：宽度收窄后仍保留足够的纵向点击区域
+        height: actionSlotHeight(context),
         child: Icon(Icons.more_vert, size: size, color: AppColors.textWeak),
       ),
     );
