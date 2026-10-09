@@ -4,12 +4,12 @@
 设计要点
 --------
 1. 唯一数据源：项目根目录 `logo.png`（白底 + 蓝钥匙盾牌）。
-2. 缩放口径按"钥匙高度占画布的比例"表述，两个旋钮：
-   - `DEFAULT_CONTENT_RATIO`（默认 0.533）：图块类图标，即 Windows ICO + Android 传统图标。
-   - `DEFAULT_ADAPTIVE_CONTENT_RATIO`（默认 0.533）：Android 自适应图标前景。
-   两者当前取值相同，但刻意分开：自适应图标的可见大小受 72dp 安全区规则约束，已经确认观感合适，
-   不应随着"图块类图标"后续微调而被一起带大或带小。
-3. Windows 小尺寸帧例外：`WINDOWS_FRAME_RATIO_OVERRIDES` 把 16/24px 放宽到 0.60（光学尺寸分级）。
+2. 跨端统一以"钥匙高度占用户可见图块的比例"为准（`VISIBLE_TILE_RATIO`，默认 0.70），两个旋钮由它推导：
+   - `DEFAULT_CONTENT_RATIO`（= 0.70）：图块类图标，即 Windows ICO + Android 传统图标，整张画布即可见图块。
+   - `DEFAULT_ADAPTIVE_CONTENT_RATIO`（= 0.70 × 72/108 ≈ 0.467）：Android 自适应图标前景，
+     108dp 画布中启动器只显示中心 72dp，因此要按安全区折算，否则同一数值在手机上会明显偏大。
+   早期两者都写死 0.533，结果 Windows 钥匙占图块约 53%、Android 约 80%，两端观感差距明显。
+3. Windows 小尺寸帧例外：`WINDOWS_FRAME_RATIO_OVERRIDES` 把 16/24px 放宽到 0.80（光学尺寸分级）。
    因此同一个 .ico 内不同帧可能来自不同口径，由 `save_windows_ico` 分口径渲染后合并目录结构。
 4. 之所以按占比而非"内边距"表述：早期 Windows 用 8%、Android 用 6% 两套 padding 常量，
    分别对应钥匙占 86.2% / 89.3%，跨端难以对齐且极易漂移；改成占比后各端只看一个数。
@@ -48,12 +48,16 @@ from PIL import Image
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 SRC = PROJECT_ROOT / "logo.png"
 
-# 图块类图标（Windows ICO、Android 传统图标）的缩放口径：钥匙高度占画布的比例
-DEFAULT_CONTENT_RATIO = 0.533
+# 跨端统一口径：钥匙高度占"用户实际看到的图块"的比例。
+# 取 Windows 原 53% 与 Android 原 80% 之间略偏大的 70%，两端观感一致。
+VISIBLE_TILE_RATIO = 0.70
+
+# 图块类图标（Windows ICO、Android 传统图标）的缩放口径：整张画布即可见图块，直接取统一口径
+DEFAULT_CONTENT_RATIO = VISIBLE_TILE_RATIO
 
 # Android 自适应图标前景的缩放口径：钥匙高度占 108dp 画布的比例。
-# 0.533 等价于"填满中心 72dp 安全区的 80%"，该观感已确认合适，故与图块类图标分开锁定。
-DEFAULT_ADAPTIVE_CONTENT_RATIO = 0.533
+# 启动器只显示中心 72dp，因此按 72/108 折算，可见占比才与 Windows 一致（≈ 0.467）。
+DEFAULT_ADAPTIVE_CONTENT_RATIO = round(VISIBLE_TILE_RATIO * 72 / 108, 3)
 
 # 白底透明化阈值。略低于 255，把 JPEG/PNG 压缩产生的近白噪点一并清掉，
 # 同时保留钥匙边缘的抗锯齿过渡像素，避免出现白色描边。
@@ -65,8 +69,8 @@ WINDOWS_SIZES = (16, 24, 32, 48, 64, 128, 256)
 
 # 小尺寸帧的光学放宽：16/24px 是任务栏最小的两个档位，按统一口径缩到该尺寸后
 # 钥匙只剩 8/13px，盾牌与锁孔糊成一团。图标设计的通行做法是给小尺寸单独放大图形
-# （光学尺寸分级），此处把这两帧放宽到 0.60，32px 及以上仍用统一口径。
-WINDOWS_FRAME_RATIO_OVERRIDES = {16: 0.60, 24: 0.60}
+# （光学尺寸分级），此处把这两帧放宽到 0.80，32px 及以上仍用统一口径。
+WINDOWS_FRAME_RATIO_OVERRIDES = {16: 0.80, 24: 0.80}
 
 # Android 传统图标尺寸（各 density）
 ANDROID_TRADITIONAL_SIZES = {
@@ -400,13 +404,13 @@ def main() -> int:
         "--ratio",
         type=float,
         default=DEFAULT_CONTENT_RATIO,
-        help="图块类图标（Windows / Android 传统）的钥匙高度占比。默认 0.533",
+        help=f"图块类图标（Windows / Android 传统）的钥匙高度占比。默认 {DEFAULT_CONTENT_RATIO}",
     )
     parser.add_argument(
         "--adaptive-ratio",
         type=float,
         default=DEFAULT_ADAPTIVE_CONTENT_RATIO,
-        help="Android 自适应前景的钥匙高度占比。默认 0.533（= 72dp 安全区的 80%%）",
+        help=f"Android 自适应前景的钥匙高度占比。默认 {DEFAULT_ADAPTIVE_CONTENT_RATIO}（= 72dp 安全区的 {VISIBLE_TILE_RATIO * 100:.0f}%%）",
     )
     parser.add_argument(
         "--out-root",
