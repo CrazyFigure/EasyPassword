@@ -1,4 +1,4 @@
-/// 搜索结果导航组件测试：目录展示，以及详情返回后的文件夹层级与定位。
+/// 搜索结果导航组件测试：目录展示，以及详情返回后回到原搜索结果与滚动位置。
 library;
 
 import 'package:easypassword/core/constants.dart';
@@ -32,8 +32,7 @@ void main() {
     state.passwordSortMode = 'name_asc';
 
     final folder = await state.data.addFolder(ItemType.password, '工作账号');
-    // 用足够多的普通条目把目标推到首屏之外，才能验证返回后不只是进入了
-    // 文件夹，而且确实执行了滚动定位。
+    // 用足够多的同名前缀条目撑出长结果列表，才能验证返回后滚动位置被保留。
     for (var i = 0; i < 24; i++) {
       await state.data.addItem(
         ItemType.password,
@@ -68,7 +67,7 @@ void main() {
     fail('界面在超时前没有进入预期状态');
   }
 
-  testWidgets('搜索文件夹内条目，详情返回所属文件夹并定位到该行', (tester) async {
+  testWidgets('搜索文件夹内条目展示所在目录', (tester) async {
     await tester.pumpWidget(
       ChangeNotifierProvider<AppState>.value(
         value: state,
@@ -82,11 +81,39 @@ void main() {
     // 目录作为独立的第二行信息展示，不能挤占命中摘要。
     final resultTile = tester.widget<ListTile>(find.byType(ListTile));
     expect(resultTile.isThreeLine, isTrue);
+  });
 
-    await tester.tap(find.text('ZZZ 目标公司'));
+  testWidgets('详情返回后回到原搜索结果并保留滚动位置', (tester) async {
+    await tester.pumpWidget(
+      ChangeNotifierProvider<AppState>.value(
+        value: state,
+        child: const MaterialApp(home: HomePage()),
+      ),
+    );
+
+    await tester.enterText(find.byType(TextField), '条目');
+    await pumpUntil(
+        tester, () => find.byType(ListTile).evaluate().isNotEmpty);
+
+    // 结果列表的滚动状态（排除搜索框内部的 Scrollable）
+    ScrollPosition resultPosition() => tester
+        .state<ScrollableState>(find
+            .descendant(
+                of: find.byType(ListView), matching: find.byType(Scrollable))
+            .first)
+        .position;
+
+    await tester.drag(find.byType(ListView), const Offset(0, -600));
+    await tester.pumpAndSettle();
+    final offsetBefore = resultPosition().pixels;
+    expect(offsetBefore, greaterThan(0));
+
+    await tester.tap(find.byType(ListTile).hitTestable().first);
     await pumpUntil(tester, () => find.text('密码详情').evaluate().isNotEmpty);
 
-    // 文件夹页与详情页都保留在导航栈中，只点击当前详情 AppBar 内的返回键。
+    // 打开详情不切换 Tab，搜索页仍在下层路由中
+    expect(state.currentTab, 'search');
+
     final detailAppBar = find.widgetWithText(AppBar, '密码详情');
     await tester.tap(
       find.descendant(
@@ -97,12 +124,15 @@ void main() {
     await pumpUntil(
       tester,
       () =>
-          find.text('工作账号').evaluate().isNotEmpty &&
-          find.text('ZZZ 目标公司').hitTestable().evaluate().isNotEmpty,
+          find.text('密码详情').evaluate().isEmpty &&
+          find.byType(ListTile).hitTestable().evaluate().isNotEmpty,
     );
 
-    // 目标位于名称排序末尾，偏移量大于零证明文件夹页消费了定位请求。
-    final listView = tester.widget<ListView>(find.byType(ListView));
-    expect(listView.controller!.offset, greaterThan(0));
+    // 关键词与结果列表原样保留，且静默刷新后滚动位置不变
+    expect(find.text('全局搜索'), findsOneWidget);
+    expect(
+        tester.widget<TextField>(find.byType(TextField)).controller!.text,
+        '条目');
+    expect(resultPosition().pixels, offsetBefore);
   });
 }
