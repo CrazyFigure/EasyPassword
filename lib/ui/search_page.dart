@@ -12,7 +12,6 @@ import '../state/app_state.dart';
 import 'common/site_color.dart';
 import 'detail/apikey_detail_page.dart';
 import 'detail/password_detail_page.dart';
-import 'folder_page.dart';
 
 class SearchPage extends StatefulWidget {
   const SearchPage({super.key});
@@ -26,6 +25,8 @@ class _SearchPageState extends State<SearchPage> {
   String _scope = 'all';
   List<SearchResult> _results = [];
   bool _searching = false;
+  // 搜索请求序号：输入过快或返回后静默刷新时，只采纳最后一次请求的结果
+  int _searchSeq = 0;
 
   @override
   void dispose() {
@@ -33,7 +34,10 @@ class _SearchPageState extends State<SearchPage> {
     super.dispose();
   }
 
-  Future<void> _doSearch(String query) async {
+  /// 执行搜索。[silent] 为 true 时不切换到加载态，结果列表保持在树中，
+  /// 用于详情返回后的静默刷新，从而保留用户刚才的滚动位置。
+  Future<void> _doSearch(String query, {bool silent = false}) async {
+    final seq = ++_searchSeq;
     if (query.trim().isEmpty) {
       setState(() {
         _results = [];
@@ -41,10 +45,11 @@ class _SearchPageState extends State<SearchPage> {
       });
       return;
     }
-    setState(() => _searching = true);
+    if (!silent) setState(() => _searching = true);
     final state = context.read<AppState>();
     final results = await state.search.search(query, scope: _scope);
-    if (!mounted) return;
+    // 期间已有更新的搜索请求，丢弃本次过期结果
+    if (!mounted || seq != _searchSeq) return;
     setState(() {
       _results = results;
       _searching = false;
@@ -503,8 +508,8 @@ class _SearchPageState extends State<SearchPage> {
 
   /// 点击结果跳转到对应详情（需求 3.3）。
   ///
-  /// 文件夹内条目先把 [FolderPage] 压入导航栈，并由文件夹页继续打开详情；
-  /// 因而详情返回时能保留正确目录层级，同时由文件夹页负责滚动定位。
+  /// 详情页直接压在搜索页之上，不切换 Tab、不经过文件夹页：返回时回到
+  /// 原搜索页，关键词、分区筛选、结果列表与滚动位置均原样保留。
   Future<void> _jumpTo(SearchResult r) async {
     final state = context.read<AppState>();
     // 直接按 id 查库，避免根目录缓存列表查不到文件夹内的条目
@@ -514,41 +519,19 @@ class _SearchPageState extends State<SearchPage> {
       showAppToast(context, '条目不存在或已删除', kind: ToastKind.error);
       return;
     }
-    // 以点击时的最新条目归属为准，避免搜索完成后条目被移动导致返回旧目录。
-    final folderId = item.folderId;
-    final folder =
-        folderId == null ? null : await state.data.getFolder(folderId);
-    if (!mounted) return;
-
-    // 查询完导航上下文后再切换 Tab；setTab 会让搜索页退出组件树，之后不能
-    // 再等待数据库查询或读取本页 context。
-    state.setTab(r.itemType);
-    if (folderId != null) {
-      // 已删除、类型不匹配的文件夹属于异常或并发变更，安全回退为直接详情。
-      if (folder != null && !folder.deleted && folder.type == r.itemType) {
-        await Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => FolderPage(
-              type: r.itemType,
-              folder: folder,
-              initialItem: item,
-            ),
-          ),
-        );
-        await state.refresh();
-        return;
-      }
-    }
 
     await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => r.itemType == ItemType.apikey
+        builder: (_) => item.type == ItemType.apikey
             ? ApiKeyDetailPage(item: item)
             : PasswordDetailPage(item: item),
       ),
     );
+    if (!mounted) return;
     await state.refresh();
+    if (!mounted) return;
+    // 详情内可能改名、改账号或删除条目，静默重搜以同步结果且不丢滚动位置
+    await _doSearch(_controller.text, silent: true);
   }
 }
